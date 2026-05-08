@@ -2355,7 +2355,7 @@ static std::vector<cv::Mat> decodeMotionPhotoSidecarVideo(wstring_view path) {
         }
 
         const auto videoBuf = fileReader.view();
-        auto frames = DecodeVideoFrames(videoBuf.data(), videoBuf.size());
+        auto frames = DecodeVideoFrames(videoBuf.data(), videoBuf.size(), MAX_VIDEO_FRAMES);
         if (!frames.empty()) {
             return frames;
         }
@@ -2422,9 +2422,30 @@ ImageAsset ImageDatabase::myLoader(const wstring& path) {
     auto ext = wstring((dotPos != std::wstring::npos && dotPos < path.size() - 1) ?
         path.substr(dotPos + 1) : path);
     for (auto& c : ext)	c = std::tolower(c);
+    
+    if (videoExt.contains(ext)) { // 默认不会打开视频，若强行打开则最多解码300帧
+        ImageAsset imageAsset;
+        auto frames = DecodeVideoFrames(fileBuf.data(), fileBuf.size(), MAX_VIDEO_FRAMES);
 
-    // 动态图
-    if (opencvAnimationExt.contains(ext)) {
+        if (frames.empty()) {
+            imageAsset.format = ImageFormat::Still;
+            imageAsset.primaryFrame = getErrorTipsMat();
+            imageAsset.exifInfo = ExifParse::getSimpleInfo(path, 0, 0, fileBuf.data(), fileBuf.size());
+        }
+        else if (frames.size() == 1) {
+            imageAsset.format = ImageFormat::Still;
+            imageAsset.primaryFrame = std::move(frames[0]);
+            imageAsset.exifInfo = ExifParse::getSimpleInfo(path, imageAsset.primaryFrame.cols, imageAsset.primaryFrame.rows, fileBuf.data(), fileBuf.size());
+        }
+        else {
+            imageAsset.format = ImageFormat::Animated;
+            imageAsset.frames = std::move(frames);
+            imageAsset.frameDurations.resize(imageAsset.frames.size(), 33);
+            imageAsset.exifInfo = ExifParse::getSimpleInfo(path, imageAsset.frames[0].cols, imageAsset.frames[0].rows, fileBuf.data(), fileBuf.size());
+        }
+        return imageAsset;
+    }
+    else if (opencvAnimationExt.contains(ext)) { // 动态图
         auto imageAsset = loadAnimation(path, fileBuf);
 
         if (imageAsset.format == ImageFormat::None) {
@@ -2478,7 +2499,7 @@ ImageAsset ImageDatabase::myLoader(const wstring& path) {
     }
     else if (ext == L"webm") { //静态或动画
         ImageAsset imageAsset;
-        auto frames = DecodeVideoFrames(fileBuf.data(), fileBuf.size());
+        auto frames = DecodeVideoFrames(fileBuf.data(), fileBuf.size(), MAX_VIDEO_FRAMES);
 
         if (frames.empty()) {
             imageAsset.format = ImageFormat::Still;

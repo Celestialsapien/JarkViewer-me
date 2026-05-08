@@ -3,4 +3,4 @@
 #include "jarkUtils.h"
 
 
-std::vector<cv::Mat> DecodeVideoFrames(const uint8_t* videoBuffer, size_t size);
+std::vector<cv::Mat> DecodeVideoFrames(const uint8_t* videoBuffer, size_t size, size_t maxFrames = 0);

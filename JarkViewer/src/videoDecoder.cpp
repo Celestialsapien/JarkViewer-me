@@ -118,8 +118,8 @@ static int get_rotation_angle(AVStream* stream) {
     return -rotate;
 }
 
-// 主解码函数
-std::vector<cv::Mat> DecodeVideoFrames(const uint8_t* videoBuffer, size_t size) {
+// 视频解码 若 maxFrames > 0 则限制解码帧数，适用于预览等场景
+std::vector<cv::Mat> DecodeVideoFrames(const uint8_t* videoBuffer, size_t size, size_t maxFrames) {
     std::vector<cv::Mat> frames;
 
     if (!videoBuffer || size < MIN_VIDEO_BUFF_SIZE) {
@@ -301,6 +301,10 @@ std::vector<cv::Mat> DecodeVideoFrames(const uint8_t* videoBuffer, size_t size) 
             }
         }
         av_packet_unref(packet.get());
+
+        if (maxFrames && frames.size() >= maxFrames) {
+            break;
+        }
     }
 
     // av_free 会自动在 formatCtx 关闭时处理 ioBuffer，但为了清晰，这里主要依赖 unique_ptr 清理

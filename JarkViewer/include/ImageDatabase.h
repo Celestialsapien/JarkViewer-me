@@ -245,12 +245,17 @@ public:
         L"gif", L"png", L"apng", L"webp",
     };
 
+    static inline const unordered_set<wstring_view> videoExt{
+        L"mp4", L"mov", L"mkv", L"avi", L"wmv", L"flv", L"m4v", L"3gp", 
+        L"mts", L"m2ts", L"vob", L"evo", L"ts", L"mxf", 
+    };
+
     static inline const unordered_set<wstring_view> supportExt{
         L"apng", L"avif", L"avifs", L"blp", L"bmp", L"dib", L"exr", L"gif", 
         L"hdr", L"heic", L"heif", L"ico", L"icon", L"jfif", L"jp2", L"jpe", 
         L"jpeg", L"jpg", L"jxl", L"jxr", L"livp", L"pbm", L"pcx", L"pfm", 
         L"pgm", L"pic", L"png", L"pnm", L"ppm", L"psd", L"psdt", L"pxm", 
-        L"qoi", L"ras", L"sr", L"svg", L"tga", L"tif", L"tiff", L"webm", 
+        L"qoi", L"ras", L"sr", L"svg", L"tga", L"tif", L"tiff", L"webm",
         L"webp", L"wp2",
     };
 
