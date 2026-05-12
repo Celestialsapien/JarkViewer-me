@@ -157,7 +157,7 @@ public:
 #ifndef NDEBUG
             cv::rectangle(winCanvas, radio.rect, jarkUtils::to_cv_scalar(DEBUG_COLOR), 1);
 #endif
-            int itemWidth = radio.rect.width / radio.stringIDs.size();
+            int itemWidth = radio.rect.width / (int)radio.stringIDs.size();
             cv::Rect rect1 = { radio.rect.x + itemWidth * (1 + idx) , radio.rect.y + 4, itemWidth, radio.rect.height - 6 }; // 当前项背景框
             cv::rectangle(winCanvas, rect1, jarkUtils::to_cv_scalar(GlobalVar::currentTheme.CHECK), -1);
 
@@ -319,7 +319,7 @@ public:
 
             for (auto& radio : generalTabRadioList) {
                 if (isInside(x, y, radio.rect)) {
-                    int itemWidth = radio.rect.width / radio.stringIDs.size();
+                    int itemWidth = radio.rect.width / (int)radio.stringIDs.size();
                     int clickIdx = (x - radio.rect.x) / itemWidth - 1;
                     if (0 <= clickIdx && clickIdx < radio.stringIDs.size() - 1) {
                         *radio.valuePtr = clickIdx;
@@ -398,7 +398,7 @@ public:
         };
 
         if (event == cv::EVENT_LBUTTONUP) {
-            int gridIdx = getGridIndex(x, y, xOffset, yOffset, gridWidth, gridHeight, gridNumPerLine, allSupportExt.size());
+            int gridIdx = getGridIndex(x, y, xOffset, yOffset, gridWidth, gridHeight, gridNumPerLine, (int)allSupportExt.size());
             if (gridIdx >= 0) {
                 const auto& targetExt = (allSupportExt)[gridIdx];
                 toggle(checkedExt, targetExt);

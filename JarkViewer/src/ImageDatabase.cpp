@@ -1307,7 +1307,7 @@ cv::Mat ImageDatabase::loadSTB(wstring_view path, std::span<const uint8_t> buf) 
         cv::cvtColor(rgba, bgra, cv::COLOR_RGBA2BGRA);
         return bgra;
     }
-    catch (const std::exception& e) {
+    catch ([[maybe_unused]] const std::exception& e) {
         JARK_LOG("Exception while processing image {}: {}", jarkUtils::wstringToUtf8(path), e.what());
     }
 
@@ -1686,7 +1686,7 @@ ImageAsset ImageDatabase::loadTiff(wstring_view path, std::span<const uint8_t> b
             cv::Mat(1, static_cast<int>(buf.size()), CV_8UC1, const_cast<uint8_t*>(buf.data())), 
             cv::IMREAD_UNCHANGED, frames);
     }
-    catch (cv::Exception e) {
+    catch ([[maybe_unused]] const cv::Exception& e) {
         JARK_LOG("cv::imdecodemulti exception: {} [{}]", jarkUtils::wstringToUtf8(path), e.what());
         multiPageSuccess = false;
     }
@@ -1698,7 +1698,7 @@ ImageAsset ImageDatabase::loadTiff(wstring_view path, std::span<const uint8_t> b
             singleFrame = cv::imdecode(cv::Mat(1, static_cast<int>(buf.size()), CV_8UC1, const_cast<uint8_t*>(buf.data())), 
                 cv::IMREAD_UNCHANGED);
         }
-        catch (cv::Exception e) {
+        catch ([[maybe_unused]] const cv::Exception& e) {
             JARK_LOG("cv::imdecode exception: {} [{}]", jarkUtils::wstringToUtf8(path), e.what());
             imageAsset.format = ImageFormat::None;
             imageAsset.primaryFrame = getErrorTipsMat();
@@ -1756,7 +1756,7 @@ cv::Mat ImageDatabase::loadImageOpenCV(wstring_view path, std::span<const uint8_
             cv::Mat(1, static_cast<int>(buf.size()), CV_8UC1, const_cast<uint8_t*>(buf.data())), 
             cv::IMREAD_UNCHANGED);
     }
-    catch (cv::Exception e) {
+    catch ([[maybe_unused]] const cv::Exception& e) {
         JARK_LOG("cvMat cannot decode: {} [{}]", jarkUtils::wstringToUtf8(path), e.what());
         return {};
     }
@@ -2329,7 +2329,7 @@ static size_t getVideoSize(string_view exifStr) {
     try {
         value = std::stoi(std::string(valueStr));
     }
-    catch (const std::exception&) {
+    catch ([[maybe_unused]] const std::exception& e) {
         return 0;
     }
     return value;

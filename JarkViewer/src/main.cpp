@@ -737,8 +737,8 @@ public:
             }break;
 
             case 'W': {
-                const int newTargetYMax = ((curPar.rotation == 0 or curPar.rotation == 2) ?
-                    curPar.height : curPar.width) * curPar.zoomTarget / 2 / curPar.ZOOM_BASE;
+                const int newTargetYMax = (int)(((curPar.rotation == 0 or curPar.rotation == 2) ?
+                    curPar.height : curPar.width) * curPar.zoomTarget / 2 / curPar.ZOOM_BASE);
                 int newTargetY = curPar.slideTarget.y + ((winHeight + winWidth) / 16);
                 newTargetY = std::clamp(newTargetY, -newTargetYMax, newTargetYMax);
                 curPar.slideTarget.y = newTargetY;
@@ -746,8 +746,8 @@ public:
             }break;
 
             case 'S': {
-                const int newTargetYMax = ((curPar.rotation == 0 or curPar.rotation == 2) ?
-                    curPar.height : curPar.width) * curPar.zoomTarget / 2 / curPar.ZOOM_BASE;
+                const int newTargetYMax = (int)(((curPar.rotation == 0 or curPar.rotation == 2) ?
+                    curPar.height : curPar.width) * curPar.zoomTarget / 2 / curPar.ZOOM_BASE);
                 int newTargetY = curPar.slideTarget.y - ((winHeight + winWidth) / 16);
                 newTargetY = std::clamp(newTargetY, -newTargetYMax, newTargetYMax);
                 curPar.slideTarget.y = newTargetY;
@@ -755,8 +755,8 @@ public:
             }break;
 
             case 'A': {
-                const int newTargetXMax = ((curPar.rotation == 0 || curPar.rotation == 2) ?
-                    curPar.width : curPar.height) * curPar.zoomTarget / 2 / curPar.ZOOM_BASE;
+                const int newTargetXMax = (int)(((curPar.rotation == 0 || curPar.rotation == 2) ?
+                    curPar.width : curPar.height) * curPar.zoomTarget / 2 / curPar.ZOOM_BASE);
                 int newTargetX = curPar.slideTarget.x + ((winHeight + winWidth) / 16);
                 newTargetX = std::clamp(newTargetX, -newTargetXMax, newTargetXMax);
                 curPar.slideTarget.x = newTargetX;
@@ -764,8 +764,8 @@ public:
             }break;
 
             case 'D': {
-                const int newTargetXMax = ((curPar.rotation == 0 || curPar.rotation == 2) ?
-                    curPar.width : curPar.height) * curPar.zoomTarget / 2 / curPar.ZOOM_BASE;
+                const int newTargetXMax = (int)(((curPar.rotation == 0 || curPar.rotation == 2) ?
+                    curPar.width : curPar.height) * curPar.zoomTarget / 2 / curPar.ZOOM_BASE);
                 int newTargetX = curPar.slideTarget.x - ((winHeight + winWidth) / 16);
                 newTargetX = std::clamp(newTargetX, -newTargetXMax, newTargetXMax);
                 curPar.slideTarget.x = newTargetX;
@@ -1150,28 +1150,28 @@ public:
                 switch (curPar.rotation) {
                 case 0:
                     for (int x = xStart; x < xEnd; x++) {
-                        int srcX = (x - deltaW) * zoomInvert;
+                        int srcX = (int)((x - deltaW) * zoomInvert);
                         srcX = std::clamp(srcX, 0, srcW - 1);
                         ptr[x] = getSrcPx4(srcImg, srcX, srcY, x, y);
                     }
                     break;
                 case 1:
                     for (int x = xStart; x < xEnd; x++) {
-                        int srcX = (x - deltaW) * zoomInvert;
+                        int srcX = (int)((x - deltaW) * zoomInvert);
                         srcX = std::clamp(srcX, 0, srcW - 1);
                         ptr[x] = getSrcPx4(srcImg, srcH - 1 - srcY, srcX, x, y);
                     }
                     break;
                 case 2:
                     for (int x = xStart; x < xEnd; x++) {
-                        int srcX = (x - deltaW) * zoomInvert;
+                        int srcX = (int)((x - deltaW) * zoomInvert);
                         srcX = std::clamp(srcX, 0, srcW - 1);
                         ptr[x] = getSrcPx4(srcImg, srcW - 1 - srcX, srcH - 1 - srcY, x, y);
                     }
                     break;
                 default:
                     for (int x = xStart; x < xEnd; x++) {
-                        int srcX = (x - deltaW) * zoomInvert;
+                        int srcX = (int)((x - deltaW) * zoomInvert);
                         srcX = std::clamp(srcX, 0, srcW - 1);
                         ptr[x] = getSrcPx4(srcImg, srcY, srcW - 1 - srcX, x, y);
                     }
@@ -1191,28 +1191,28 @@ public:
                 switch (curPar.rotation) {
                 case 0:
                     for (int x = xStart; x < xEnd; x++) {
-                        int srcX = (x - deltaW) * zoomInvert;
+                        int srcX = (int)((x - deltaW) * zoomInvert);
                         srcX = std::clamp(srcX, 0, srcW - 1);
                         ptr[x] = getSrcPx3(srcImg, srcX, srcY);
                     }
                     break;
                 case 1:
                     for (int x = xStart; x < xEnd; x++) {
-                        int srcX = (x - deltaW) * zoomInvert;
+                        int srcX = (int)((x - deltaW) * zoomInvert);
                         srcX = std::clamp(srcX, 0, srcW - 1);
                         ptr[x] = getSrcPx3(srcImg, srcH - 1 - srcY, srcX);
                     }
                     break;
                 case 2:
                     for (int x = xStart; x < xEnd; x++) {
-                        int srcX = (x - deltaW) * zoomInvert;
+                        int srcX = (int)((x - deltaW) * zoomInvert);
                         srcX = std::clamp(srcX, 0, srcW - 1);
                         ptr[x] = getSrcPx3(srcImg, srcW - 1 - srcX, srcH - 1 - srcY);
                     }
                     break;
                 default:
                     for (int x = xStart; x < xEnd; x++) {
-                        int srcX = (x - deltaW) * zoomInvert;
+                        int srcX = (int)((x - deltaW) * zoomInvert);
                         srcX = std::clamp(srcX, 0, srcW - 1);
                         ptr[x] = getSrcPx3(srcImg, srcY, srcW - 1 - srcX);
                     }
@@ -1232,28 +1232,28 @@ public:
                 switch (curPar.rotation) {
                 case 0:
                     for (int x = xStart; x < xEnd; x++) {
-                        int srcX = (x - deltaW) * zoomInvert;
+                        int srcX = (int)((x - deltaW) * zoomInvert);
                         srcX = std::clamp(srcX, 0, srcW - 1);
                         ptr[x] = getSrcPx1(srcImg, srcX, srcY);
                     }
                     break;
                 case 1:
                     for (int x = xStart; x < xEnd; x++) {
-                        int srcX = (x - deltaW) * zoomInvert;
+                        int srcX = (int)((x - deltaW) * zoomInvert);
                         srcX = std::clamp(srcX, 0, srcW - 1);
                         ptr[x] = getSrcPx1(srcImg, srcH - 1 - srcY, srcX);
                     }
                     break;
                 case 2:
                     for (int x = xStart; x < xEnd; x++) {
-                        int srcX = (x - deltaW) * zoomInvert;
+                        int srcX = (int)((x - deltaW) * zoomInvert);
                         srcX = std::clamp(srcX, 0, srcW - 1);
                         ptr[x] = getSrcPx1(srcImg, srcW - 1 - srcX, srcH - 1 - srcY);
                     }
                     break;
                 default:
                     for (int x = xStart; x < xEnd; x++) {
-                        int srcX = (x - deltaW) * zoomInvert;
+                        int srcX = (int)((x - deltaW) * zoomInvert);
                         srcX = std::clamp(srcX, 0, srcW - 1);
                         ptr[x] = getSrcPx1(srcImg, srcY, srcW - 1 - srcX);
                     }
@@ -1847,12 +1847,12 @@ public:
             int newTargetX = curPar.slideTarget.x + operateAction.x;
             int newTargetY = curPar.slideTarget.y + operateAction.y;
 
-            const int newTargetXMax = ((curPar.rotation == 0 || curPar.rotation == 2) ? 
-                curPar.width : curPar.height) * curPar.zoomTarget / 2 / curPar.ZOOM_BASE;
+            const int newTargetXMax = (int)(((curPar.rotation == 0 || curPar.rotation == 2) ?
+                curPar.width : curPar.height) * curPar.zoomTarget / 2 / curPar.ZOOM_BASE);
             newTargetX = std::clamp(newTargetX, -newTargetXMax, newTargetXMax);
 
-            const int newTargetYMax = ((curPar.rotation == 0 or curPar.rotation == 2) ?
-                curPar.height : curPar.width) * curPar.zoomTarget / 2 / curPar.ZOOM_BASE;
+            const int newTargetYMax = (int)(((curPar.rotation == 0 or curPar.rotation == 2) ?
+                curPar.height : curPar.width) * curPar.zoomTarget / 2 / curPar.ZOOM_BASE);
             newTargetY = std::clamp(newTargetY, -newTargetYMax, newTargetYMax);
 
             curPar.slideTarget.x = newTargetX;

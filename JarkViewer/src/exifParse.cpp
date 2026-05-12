@@ -453,7 +453,7 @@ std::string ExifParse::getExif(wstring_view path, const uint8_t* buf, size_t fil
         else
             return "";
     }
-    catch (Exiv2::Error& e) {
+    catch ([[maybe_unused]] const Exiv2::Error& e) {
         JARK_LOG("Caught Exiv2 exception {}\n{}", jarkUtils::wstringToUtf8(path), e.what());
         return "";
     }
