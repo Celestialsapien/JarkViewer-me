@@ -37,8 +37,19 @@ MSBuild.exe JarkViewer.slnx /t:Clean /p:Configuration=Release /p:Platform=x64
 MSBuild.exe JarkViewer/JarkViewer.vcxproj -m -p:Configuration=Release -p:Platform=x64
 ```
 
-## 在没有MSBuild命令的普通终端环境下，需要使用它的绝对路径
-"C:\Program Files\Microsoft Visual Studio\18\Community\MSBuild\Current\Bin\amd64\MSBuild.exe"
+### 在没有 MSBuild 命令的普通终端环境下
+
+需要使用 MSBuild 的绝对路径。**重要**：在 PowerShell 中调用包含空格的路径时，必须使用调用操作符 `&`：
+
+```powershell
+# 正确：使用 & 调用操作符
+& "C:\Program Files\Microsoft Visual Studio\18\Community\MSBuild\Current\Bin\amd64\MSBuild.exe" JarkViewer/JarkViewer.vcxproj /m /p:Configuration=Release /p:Platform=x64
+
+# 错误：直接使用引号会导致 "Unexpected token" 错误
+"C:\Program Files\Microsoft Visual Studio\18\Community\MSBuild\Current\Bin\amd64\MSBuild.exe" JarkViewer/JarkViewer.vcxproj /m /p:Configuration=Release /p:Platform=x64
+```
+
+**原因**：PowerShell 将带引号的字符串视为字符串字面量，而非可执行命令。调用操作符 `&` 告诉 PowerShell 将字符串作为命令执行。
 
 当前仓库没有检测到自动化测试、lint 或格式化配置。每次修改后至少保证 `Release|x64` 能干净编译；行为变更需手动冒烟验证静态图加载、动图播放、EXIF 显示、打印预览和导出流程。
 
