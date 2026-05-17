@@ -234,8 +234,8 @@ bool jarkUtils::copyToClipboard(wstring_view text) {
 
     auto desPtr = GlobalLock(hGlob);
     if (desPtr) {
-        memcpy(desPtr, text.data(), (text.size() + 1) * sizeof(wchar_t));
-        ((wchar_t*)desPtr)[text.size() + 1] = 0; // wstring_view 尾部不能保证有 '\0' 终止符
+        memcpy(desPtr, text.data(), text.size() * sizeof(wchar_t));
+        ((wchar_t*)desPtr)[text.size()] = L'\0'; // 显式添加 NUL 终止符
     }
     GlobalUnlock(hGlob);
 
