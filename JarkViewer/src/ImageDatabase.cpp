@@ -1782,6 +1782,12 @@ cv::Mat ImageDatabase::loadImageOpenCV(wstring_view path, std::span<const uint8_
 
 // 辅助函数，用于从 PFM 头信息中提取尺寸和比例因子
 static bool parsePFMHeader(std::span<const uint8_t> buf, int& width, int& height, float& scaleFactor, bool& isColor, size_t& dataOffset) {
+    // 最小头部需要至少 "PF\n1 1\n1\n" = 10 字节
+    if (buf.size() < 10) {
+        JARK_LOG("PFM buffer too small!");
+        return false;
+    }
+
     string header(reinterpret_cast<const char*>(buf.data()), 2);
 
     // 判断是否是RGB（PF）或灰度（Pf）
@@ -1800,17 +1806,35 @@ static bool parsePFMHeader(std::span<const uint8_t> buf, int& width, int& height
     size_t maxOffset = buf.size() > 100 ? 100 : buf.size();
     size_t offset = 2;
 
-    while ((buf[offset] == '\n' || buf[offset] == ' ') && offset < maxOffset) offset++;
+    // 先检查边界再访问
+    while (offset < maxOffset && (buf[offset] == '\n' || buf[offset] == ' ')) offset++;
+    if (offset >= maxOffset) {
+        JARK_LOG("PFM header truncated at dimension line!");
+        return false;
+    }
+
     string dimLine;
-    while (buf[offset] != '\n' && offset < maxOffset) dimLine += buf[offset++];
+    while (offset < maxOffset && buf[offset] != '\n') dimLine += buf[offset++];
+    if (offset >= maxOffset) {
+        JARK_LOG("PFM header truncated in dimension line!");
+        return false;
+    }
 
     switch (sscanf(dimLine.c_str(), "%d %d", &width, &height)) {
     case 1: {
         offset++;
-        string dimLine;
-        while (buf[offset] != '\n' && offset < maxOffset) dimLine += buf[offset++];
-        if (sscanf(dimLine.c_str(), "%d", &height) != 1) {
-            JARK_LOG("parsePFMHeader fail!");
+        if (offset >= maxOffset) {
+            JARK_LOG("PFM header truncated after first dimension!");
+            return false;
+        }
+        string dimLine2;
+        while (offset < maxOffset && buf[offset] != '\n') dimLine2 += buf[offset++];
+        if (offset >= maxOffset) {
+            JARK_LOG("PFM header truncated in second dimension!");
+            return false;
+        }
+        if (sscanf(dimLine2.c_str(), "%d", &height) != 1) {
+            JARK_LOG("parsePFMHeader fail to parse height!");
             return false;
         }
     }break;
@@ -1818,17 +1842,38 @@ static bool parsePFMHeader(std::span<const uint8_t> buf, int& width, int& height
     case 2:break;
 
     default: {
-        JARK_LOG("parsePFMHeader fail!");
+        JARK_LOG("parsePFMHeader fail to parse dimensions!");
         return false;
     }
     }
 
     // 查找比例因子
-    string scaleLine;
     offset++;
-    while (buf[offset] != '\n' && offset < maxOffset) scaleLine += buf[offset++];
+    if (offset >= maxOffset) {
+        JARK_LOG("PFM header truncated before scale factor!");
+        return false;
+    }
 
-    scaleFactor = std::stof(scaleLine);
+    string scaleLine;
+    while (offset < maxOffset && buf[offset] != '\n') scaleLine += buf[offset++];
+    if (offset >= maxOffset) {
+        JARK_LOG("PFM header truncated in scale factor!");
+        return false;
+    }
+
+    // 捕获 std::stof 异常
+    try {
+        scaleFactor = std::stof(scaleLine);
+    }
+    catch (const std::invalid_argument&) {
+        JARK_LOG("Invalid scale factor format!");
+        return false;
+    }
+    catch (const std::out_of_range&) {
+        JARK_LOG("Scale factor out of range!");
+        return false;
+    }
+
     dataOffset = offset + 1;
 
     return true;
@@ -1844,6 +1889,49 @@ cv::Mat ImageDatabase::loadPFM(wstring_view path, std::span<const uint8_t> buf) 
     // 解析 PFM 头信息
     if (!parsePFMHeader(buf, width, height, scaleFactor, isColor, dataOffset)) {
         JARK_LOG("Failed to parse PFM header!");
+        return {};
+    }
+
+    // 校验宽高为正数
+    if (width <= 0 || height <= 0) {
+        JARK_LOG("Invalid PFM dimensions: width=%d, height=%d", width, height);
+        return {};
+    }
+
+    // 校验尺寸上限（防止过大分配）
+    constexpr int MAX_DIMENSION = 65536;  // 64K 像素
+    if (width > MAX_DIMENSION || height > MAX_DIMENSION) {
+        JARK_LOG("PFM dimensions too large: %dx%d (max %d)", width, height, MAX_DIMENSION);
+        return {};
+    }
+
+    // 校验 dataOffset 在 buf 范围内
+    if (dataOffset > buf.size()) {
+        JARK_LOG("PFM dataOffset %zu exceeds buffer size %zu", dataOffset, buf.size());
+        return {};
+    }
+
+    // 计算所需像素数据大小，使用溢出安全检查
+    const int channels = isColor ? 3 : 1;
+    const size_t bytesPerPixel = sizeof(float) * channels;
+
+    // 检查 width * height 是否溢出
+    if (static_cast<size_t>(width) > SIZE_MAX / static_cast<size_t>(height)) {
+        JARK_LOG("PFM pixel count overflow: %dx%d", width, height);
+        return {};
+    }
+    const size_t pixelCount = static_cast<size_t>(width) * static_cast<size_t>(height);
+
+    // 检查 pixelCount * bytesPerPixel 是否溢出
+    if (pixelCount > SIZE_MAX / bytesPerPixel) {
+        JARK_LOG("PFM data size overflow: %zu pixels * %zu bytes", pixelCount, bytesPerPixel);
+        return {};
+    }
+    const size_t requiredDataSize = pixelCount * bytesPerPixel;
+
+    // 检查 dataOffset + requiredDataSize 是否溢出或超出 buf
+    if (requiredDataSize > buf.size() - dataOffset) {
+        JARK_LOG("PFM data size %zu exceeds available buffer %zu", requiredDataSize, buf.size() - dataOffset);
         return {};
     }
 
