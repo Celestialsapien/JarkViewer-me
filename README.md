@@ -15,6 +15,7 @@
   <a href="LICENSE"><img src="https://img.shields.io/github/license/jark006/JarkViewer" alt="License"></a>
   <a><img src="https://img.shields.io/badge/OS-Windows%2010/11%2064%20bit-00adef.svg" alt="Platform"></a>
   <a href="https://deepwiki.com/jark006/JarkViewer"><img src="https://deepwiki.com/badge.svg" alt="DeepWiki"></a>
+  <a href="https://zread.ai/jark006/JarkViewer"><img src="https://img.shields.io/badge/Ask_Zread-_.svg?style=flat&color=00b0aa&labelColor=000000&logo=data%3Aimage%2Fsvg%2Bxml%3Bbase64%2CPHN2ZyB3aWR0aD0iMTYiIGhlaWdodD0iMTYiIHZpZXdCb3g9IjAgMCAxNiAxNiIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHBhdGggZD0iTTQuOTYxNTYgMS42MDAxSDIuMjQxNTZDMS44ODgxIDEuNjAwMSAxLjYwMTU2IDEuODg2NjQgMS42MDE1NiAyLjI0MDFWNC45NjAxQzEuNjAxNTYgNS4zMTM1NiAxLjg4ODEgNS42MDAxIDIuMjQxNTYgNS42MDAxSDQuOTYxNTZDNS4zMTUwMiA1LjYwMDEgNS42MDE1NiA1LjMxMzU2IDUuNjAxNTYgNC45NjAxVjIuMjQwMUM1LjYwMTU2IDEuODg2NjQgNS4zMTUwMiAxLjYwMDEgNC45NjE1NiAxLjYwMDFaIiBmaWxsPSIjZmZmIi8%2BCjxwYXRoIGQ9Ik00Ljk2MTU2IDEwLjM5OTlIMi4yNDE1NkMxLjg4ODEgMTAuMzk5OSAxLjYwMTU2IDEwLjY4NjQgMS42MDE1NiAxMS4wMzk5VjEzLjc1OTlDMS42MDE1NiAxNC4xMTM0IDEuODg4MSAxNC4zOTk5IDIuMjQxNTYgMTQuMzk5OUg0Ljk2MTU2QzUuMzE1MDIgMTQuMzk5OSA1LjYwMTU2IDE0LjExMzQgNS42MDE1NiAxMy43NTk5VjExLjAzOTlDNS42MDE1NiAxMC42ODY0IDUuMzE1MDIgMTAuMzk5OSA0Ljk2MTU2IDEwLjM5OTlaIiBmaWxsPSIjZmZmIi8%2BCjxwYXRoIGQ9Ik0xMy43NTg0IDEuNjAwMUgxMS4wMzg0QzEwLjY4NSAxLjYwMDEgMTAuMzk4NCAxLjg4NjY0IDEwLjM5ODQgMi4yNDAxVjQuOTYwMUMxMC4zOTg0IDUuMzEzNTYgMTAuNjg1IDUuNjAwMSAxMS4wMzg0IDUuNjAwMUgxMy43NTg0QzE0LjExMTkgNS42MDAxIDE0LjM5ODQgNS4zMTM1NiAxNC4zOTg0IDQuOTYwMVYyLjI0MDFDMTQuMzk4NCAxLjg4NjY0IDE0LjExMTkgMS42MDAxIDEzLjc1ODQgMS42MDAxWiIgZmlsbD0iI2ZmZiIvPgo8cGF0aCBkPSJNNCAxMkwxMiA0TDQgMTJaIiBmaWxsPSIjZmZmIi8%2BCjxwYXRoIGQ9Ik00IDEyTDEyIDQiIHN0cm9rZT0iI2ZmZiIgc3Ryb2tlLXdpZHRoPSIxLjUiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIvPgo8L3N2Zz4K&logoColor=ffffff" alt="DeepWiki"></a>
 </p>
 
 <p align="center">
@@ -101,7 +102,7 @@ scoop install extras/jarkviewer
 git clone git@github.com:jark006/JarkViewer.git --depth=50
 ```
 
-**⭐ 建议访问本项目的 [DeepWiki](https://deepwiki.com/jark006/JarkViewer) 页面，有更详细的说明和开发相关的内容，可快速理解各个模块的实现逻辑。**
+**⭐ 建议访问本项目的 [DeepWiki](https://deepwiki.com/jark006/JarkViewer) 或 [Zread](https://zread.ai/jark006/JarkViewer) 页面，有更详细的说明和开发相关的内容，可快速理解各个模块的实现逻辑。**
 
 本项目使用 `Visual Studio 2026` 进行开发，全部第三方库静态链接，开发者需要在编译前备好所有第三方静态库文件，请在以下链接下载对应版本的第三方静态库文件压缩包，按说明解压到对应位置。
 
@@ -110,7 +111,6 @@ git clone git@github.com:jark006/JarkViewer.git --depth=50
 以上静态库除 `OpenCV` 外，均使用vcpkg安装的静态库复制而来。OpenCV有以下2个修改：
 1. 在源码 `opencv-4.13.0\modules\imgcodecs\src\loadsave.cpp` #68-79 移除图像分辨率限制。
 2. 在源码 `opencv-4.13.0\modules\highgui\src\window_w32.cpp` #337 将 `IDC_CROSS` 改为 `IDC_ARROW`，即在 `cv::imshow()` 窗口内不使用十字光标。
-
 
 若不要以上静态库，可在项目属性页开启`vcpkg`支持，然后手动安装第三方库 (后续若有新增，此列表可能更新不及时，需开发者自行根据编译缺失信息补充安装)
 
