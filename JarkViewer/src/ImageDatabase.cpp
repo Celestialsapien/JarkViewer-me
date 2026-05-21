@@ -643,6 +643,45 @@ cv::Mat ImageDatabase::loadRaw(wstring_view path, std::span<const uint8_t> buf) 
     return retImg;
 }
 
+
+ImageAsset ImageDatabase::loadLEP(wstring_view path, std::span<const uint8_t> buf) {
+    uint8_t* jpeg_data = nullptr;
+    int jpeg_size = 0;
+
+    bool ok = decode_lepton(buf.data(), buf.size(), &jpeg_data, &jpeg_size);
+    if (!ok) {
+        JARK_LOG("Failed to decode LEP file, decode_lepton failed: {}", jarkUtils::wstringToUtf8(path));
+        return { ImageFormat::Still, getErrorTipsMat() };
+    }
+    if (!jpeg_data) {
+        JARK_LOG("Failed to decode LEP file, jpeg_data is null: {}", jarkUtils::wstringToUtf8(path));
+        return { ImageFormat::Still, getErrorTipsMat() };
+    }
+
+    auto image = cv::imdecode(cv::Mat(1, jpeg_size, CV_8UC1, jpeg_data), cv::IMREAD_UNCHANGED);
+
+    if (image.empty()) {
+        free_lepton_buffer(jpeg_data, jpeg_size);
+        JARK_LOG("Failed to decode JPEG data from LEP file: {}", jarkUtils::wstringToUtf8(path));
+        return { ImageFormat::Still, getErrorTipsMat() };
+    }
+
+    ImageAsset imageAsset;
+    imageAsset.format = ImageFormat::Still;
+    imageAsset.primaryFrame = std::move(image);
+    imageAsset.exifInfo = ExifParse::getSimpleInfo(
+        path,
+        imageAsset.primaryFrame.cols,
+        imageAsset.primaryFrame.rows,
+        buf.data(),
+        buf.size()) +
+        ExifParse::getExif(path, jpeg_data, jpeg_size);
+
+    free_lepton_buffer(jpeg_data, jpeg_size);
+    return imageAsset;
+}
+
+
 static int getTrailingZeros(uint32_t value) {
     unsigned long index = 0;
     return _BitScanForward(&index, value) ? static_cast<int>(index) : 0;
@@ -2718,6 +2757,9 @@ ImageAsset ImageDatabase::myLoader(const wstring& path) {
                 + ExifParse::getExif(path, fileBuf.data(), fileBuf.size());
         }
         return imageAsset;
+    }
+    else if (ext == L"lep") {
+        return loadLEP(path, fileBuf);
     }
 
     // 实况照片 包含一张图片和一段简短视频

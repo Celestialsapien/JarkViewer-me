@@ -94,6 +94,8 @@
 #pragma comment(lib, "minizip.lib")
 #pragma comment(lib, "bz2.lib")
 
+#include "liblepton.h"
+#pragma comment(lib, "liblepton.lib")
 
 // ffmpeg
 #pragma comment(lib, "swscale.lib")
@@ -256,7 +258,7 @@ public:
         L"jpeg", L"jpg", L"jxl", L"jxr", L"livp", L"pbm", L"pcx", L"pfm", 
         L"pgm", L"pic", L"png", L"pnm", L"ppm", L"psd", L"psdt", L"pxm", 
         L"qoi", L"ras", L"sr", L"svg", L"tga", L"tif", L"tiff", L"webm",
-        L"webp", L"wp2",
+        L"webp", L"wp2", L"lep",
     };
 
     static inline const unordered_set<wstring_view> supportRaw{
@@ -482,6 +484,7 @@ public:
     ImageAsset loadMotionPhoto(wstring_view path, std::span<const uint8_t> buf, bool isJPG);
     ImageAsset loadAnimation(wstring_view path, std::span<const uint8_t> buf);
     ImageAsset loadTiff(wstring_view path, std::span<const uint8_t> buf);
+    ImageAsset loadLEP(wstring_view path, std::span<const uint8_t> buf);
 
     void handleExifOrientation(int orientation, cv::Mat& img);
     ImageAsset myLoader(const wstring& path);

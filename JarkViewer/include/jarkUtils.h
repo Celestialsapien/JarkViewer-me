@@ -82,6 +82,8 @@ using std::unordered_map;
 #pragma comment(lib, "Bcrypt.lib")
 #pragma comment(lib, "Strmiids.lib")
 #pragma comment(lib, "ws2_32.lib")
+#pragma comment(lib, "ntdll.lib")
+#pragma comment(lib, "userenv.lib")
 
 #include <opencv2/core.hpp>
 #include <opencv2/opencv.hpp>
