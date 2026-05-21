@@ -324,16 +324,16 @@ public:
             case 0: {
                 if (--curPar.curFrameIdx < 0)
                     curPar.curFrameIdx = curPar.curFrameIdxMax;
-                operateQueue.push({ ActionENUM::normalFresh });
+                operateQueue.push({ ActionENUM::refresh });
             }break;
             case 1: {
                 curPar.isAnimationPause = !curPar.isAnimationPause;
-                operateQueue.push({ ActionENUM::normalFresh });
+                operateQueue.push({ ActionENUM::refresh });
             }break;
             case 2: {
                 if (++curPar.curFrameIdx > curPar.curFrameIdxMax)
                     curPar.curFrameIdx = 0;
-                operateQueue.push({ ActionENUM::normalFresh });
+                operateQueue.push({ ActionENUM::refresh });
             }break;
             case 3: {
                 auto [filePath, isJPG] = jarkUtils::saveImageDialogW(getUIStringW(4));
@@ -360,7 +360,7 @@ public:
         else {
             if (buttonIdx == 1) {
                 curPar.isAnimationPause = !curPar.isAnimationPause;
-                operateQueue.push({ ActionENUM::normalFresh });
+                operateQueue.push({ ActionENUM::refresh });
             }
         }
     }
@@ -433,7 +433,7 @@ public:
         {
         case WM_LBUTTONUP: {//左键
             mouseIsPressing = false;
-            operateQueue.push({ ActionENUM::normalFresh });
+            operateQueue.push({ ActionENUM::refresh });
             return;
         }
 
@@ -536,44 +536,44 @@ public:
             {
             case CursorPos::leftUp:
                 extraUIFlag = ShowExtraUI::rotateLeftButton;
-                operateQueue.push({ ActionENUM::normalFresh });
+                operateQueue.push({ ActionENUM::refresh });
                 break;
 
             case CursorPos::leftDown:
                 extraUIFlag = ShowExtraUI::printer;
-                operateQueue.push({ ActionENUM::normalFresh });
+                operateQueue.push({ ActionENUM::refresh });
                 break;
 
             case CursorPos::leftEdge:
                 extraUIFlag = ShowExtraUI::leftArrow;
-                operateQueue.push({ ActionENUM::normalFresh });
+                operateQueue.push({ ActionENUM::refresh });
                 break;
 
             case CursorPos::centerTop:
                 if (curPar.imageAssetPtr->format == ImageFormat::Animated) {
                     extraUIFlag = ShowExtraUI::animationBar;
-                    operateQueue.push({ ActionENUM::normalFresh });
+                    operateQueue.push({ ActionENUM::refresh });
                 }
                 break;
 
             case CursorPos::centerArea:
                 extraUIFlag = ShowExtraUI::none;
-                operateQueue.push({ ActionENUM::normalFresh });
+                operateQueue.push({ ActionENUM::refresh });
                 break;
 
             case CursorPos::rightEdge:
                 extraUIFlag = ShowExtraUI::rightArrow;
-                operateQueue.push({ ActionENUM::normalFresh });
+                operateQueue.push({ ActionENUM::refresh });
                 break;
 
             case CursorPos::rightDown:
                 extraUIFlag = ShowExtraUI::setting;
-                operateQueue.push({ ActionENUM::normalFresh });
+                operateQueue.push({ ActionENUM::refresh });
                 break;
 
             case CursorPos::rightUp:
                 extraUIFlag = ShowExtraUI::rotateRightButton;
-                operateQueue.push({ ActionENUM::normalFresh });
+                operateQueue.push({ ActionENUM::refresh });
                 break;
             }
 
@@ -591,7 +591,7 @@ public:
         cursorPosLast = cursorPos = CursorPos::centerArea;
         extraUIFlag = ShowExtraUI::none;
         mouseIsPressing = false;
-        operateQueue.push({ ActionENUM::normalFresh });
+        operateQueue.push({ ActionENUM::refresh });
     }
 
     void OnMouseWheel(UINT nFlags, short zDelta, int x, int y) override {
@@ -625,7 +625,7 @@ public:
                 wstring filePath = jarkUtils::SelectFile(m_hWnd);
                 if (!filePath.empty()) {
                     initOpenFile(filePath);
-                    operateQueue.push({ ActionENUM::normalFresh });
+                    operateQueue.push({ ActionENUM::refresh });
                 }
                 ctrlIsPressing = false; // 上面弹出窗口导致收不到CTRL键释放的消息
             }break;
@@ -695,14 +695,14 @@ public:
                     curPar.curFrameIdx--;
                     if (curPar.curFrameIdx < 0)
                         curPar.curFrameIdx = curPar.curFrameIdxMax;
-                    operateQueue.push({ ActionENUM::normalFresh });
+                    operateQueue.push({ ActionENUM::refresh });
                 }
             }break;
 
             case 'K': { // 动图 暂停/继续
                 if (curPar.imageAssetPtr->format == ImageFormat::Animated) {
                     curPar.isAnimationPause = !curPar.isAnimationPause;
-                    operateQueue.push({ ActionENUM::normalFresh });
+                    operateQueue.push({ ActionENUM::refresh });
                 }
             }break;
 
@@ -711,7 +711,7 @@ public:
                     curPar.curFrameIdx++;
                     if (curPar.curFrameIdx > curPar.curFrameIdxMax)
                         curPar.curFrameIdx = 0;
-                    operateQueue.push({ ActionENUM::normalFresh });
+                    operateQueue.push({ ActionENUM::refresh });
                 }
             }break;
 
@@ -807,11 +807,11 @@ public:
                 if (curPar.imageAssetPtr->format == ImageFormat::Still && !curPar.imageAssetPtr->frames.empty()) {
                     curPar.imageAssetPtr->format = ImageFormat::Animated;
                     curPar.Init(winWidth, winHeight);
-                    operateQueue.push({ ActionENUM::normalFresh });
+                    operateQueue.push({ ActionENUM::refresh });
                 }
                 else if (curPar.imageAssetPtr->format == ImageFormat::Animated) {
                     curPar.isAnimationPause = !curPar.isAnimationPause;
-                    operateQueue.push({ ActionENUM::normalFresh });
+                    operateQueue.push({ ActionENUM::refresh });
                 }
                 else {
                     operateQueue.push({ ActionENUM::nextImg });
@@ -881,7 +881,7 @@ public:
 
         if (!path.empty()) {
             initOpenFile(path);
-            operateQueue.push({ ActionENUM::normalFresh });
+            operateQueue.push({ ActionENUM::refresh });
         }
     }
 
@@ -891,7 +891,7 @@ public:
             wstring filePath = jarkUtils::SelectFile(m_hWnd);
             if (!filePath.empty()) {
                 initOpenFile(filePath);
-                operateQueue.push({ ActionENUM::normalFresh });
+                operateQueue.push({ ActionENUM::refresh });
             }
         }break;
 
@@ -994,7 +994,7 @@ public:
         }
 
         updateMainCanvas();
-        operateQueue.push({ ActionENUM::normalFresh });
+        operateQueue.push({ ActionENUM::refresh });
     }
 
     uint32_t getSrcPx1(const cv::Mat& srcImg, int srcX, int srcY) const {
@@ -1630,7 +1630,7 @@ public:
             GlobalVar::isNeedUpdateTheme = false;
             BOOL themeMode = GlobalVar::isCurrentUIDarkMode;
             DwmSetWindowAttribute(m_hWnd, 20, &themeMode, sizeof(BOOL));
-            operateQueue.push({ ActionENUM::normalFresh });
+            operateQueue.push({ ActionENUM::refresh });
         }
 
         auto operateAction = operateQueue.get();
@@ -2080,7 +2080,7 @@ public:
                     if (!curPar.imageAssetPtr->primaryFrame.empty()) {
                         curPar.imageAssetPtr->format = ImageFormat::Still;
                         curPar.Init(winWidth, winHeight);
-                        operateQueue.push({ ActionENUM::normalFresh });
+                        operateQueue.push({ ActionENUM::refresh });
                     }
                 }
             }
