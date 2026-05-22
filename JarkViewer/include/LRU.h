@@ -8,8 +8,9 @@
 #include <queue>
 #include <atomic>
 #include <memory>
-#include <unordered_set>
+#include <cstdint>
 #include <shared_mutex>
+#include <vector>
 
 template<typename keyType, typename valueType>
 class LRU {
@@ -24,46 +25,57 @@ private:
     size_t CAPACITY = 5;
 
     // 预读取相关的成员
+    struct PreloadTask {
+        keyType key;
+        std::uint64_t generation;
+    };
+
     std::thread preload_thread;
-    std::queue<keyType> preload_queue;
-    std::unordered_set<keyType> preload_pending;
+    std::queue<PreloadTask> preload_queue;
+    std::unordered_map<keyType, std::uint64_t> preload_pending;
     mutable std::shared_mutex cache_mutex;  // 使用读写锁提高性能
     std::mutex preload_mutex;
     std::condition_variable preload_cv;
     std::atomic<bool> stop_preload{ false };
+    std::uint64_t preload_generation = 0;
+
+    void erasePendingLocked(const PreloadTask& task) {
+        auto it = preload_pending.find(task.key);
+        if (it != preload_pending.end() && it->second == task.generation) {
+            preload_pending.erase(it);
+        }
+    }
 
     // 预读取工作线程函数
     void preloadWorker() {
-        while (!stop_preload) {
+        while (true) {
             std::unique_lock<std::mutex> lock(preload_mutex);
-            preload_cv.wait(lock, [this] { return !preload_queue.empty() || stop_preload; });
+            preload_cv.wait(lock, [this] { return !preload_queue.empty() || stop_preload.load(); });
 
             if (stop_preload) break;
 
-            auto loadingKey = preload_queue.front();
+            PreloadTask task = std::move(preload_queue.front());
+            preload_queue.pop();
 
             {
                 std::shared_lock<std::shared_mutex> cache_lock(cache_mutex);
-                if (cache_map.contains(loadingKey)) {
-                    preload_queue.pop();
-                    preload_pending.erase(loadingKey);
+                if (cache_map.contains(task.key)) {
+                    erasePendingLocked(task);
                     continue;
                 }
             }
             lock.unlock();
 
 
-            valueType value = loader(loadingKey);
+            valueType value = loader(task.key);
             auto value_ptr = std::make_shared<valueType>(std::move(value));
 
-            {
-                std::unique_lock<std::shared_mutex> cache_lock(cache_mutex);
-                putInternal(loadingKey, value_ptr);
-            }
-
             lock.lock();
-            preload_queue.pop();
-            preload_pending.erase(loadingKey);
+            if (!stop_preload && task.generation == preload_generation) {
+                std::unique_lock<std::shared_mutex> cache_lock(cache_mutex);
+                putInternal(task.key, value_ptr);
+            }
+            erasePendingLocked(task);
             lock.unlock();
         }
     }
@@ -151,14 +163,15 @@ public:
             }
         }
 
-        preload_queue.push(key);
-        preload_pending.insert(key);
+        preload_queue.push(PreloadTask{ key, preload_generation });
+        preload_pending[key] = preload_generation;
         preload_cv.notify_one();
     }
 
     // 批量预读取
     void requestPreloadBatch(const std::vector<keyType>& keys) {
         std::lock_guard<std::mutex> lock(preload_mutex);
+        bool hasNewTask = false;
 
         for (const auto& key : keys) {
             if (preload_pending.find(key) != preload_pending.end()) {
@@ -172,11 +185,12 @@ public:
                 }
             }
 
-            preload_queue.push(key);
-            preload_pending.insert(key);
+            preload_queue.push(PreloadTask{ key, preload_generation });
+            preload_pending[key] = preload_generation;
+            hasNewTask = true;
         }
 
-        if (!keys.empty()) {
+        if (hasNewTask) {
             preload_cv.notify_all();
         }
     }
@@ -188,13 +202,15 @@ public:
     }
 
     void clear() {
-        std::unique_lock<std::shared_mutex> cache_lock(cache_mutex);
         std::lock_guard<std::mutex> preload_lock(preload_mutex);
+        std::unique_lock<std::shared_mutex> cache_lock(cache_mutex);
+
+        ++preload_generation;
 
         cache_map.clear();
         cache_list.clear();
 
-        std::queue<keyType> empty_queue;
+        std::queue<PreloadTask> empty_queue;
         preload_queue.swap(empty_queue);
         preload_pending.clear();
     }
