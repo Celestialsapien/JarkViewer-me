@@ -728,7 +728,6 @@ void jarkUtils::openFileLocation(wstring_view filePath) {
 
     fs::path absPath = fs::absolute(filePath, ec);
     if (ec) {
-        CoUninitialize();
         JARK_LOG("Failed to get absolute path: {}", ec.message());
         return;
     }
