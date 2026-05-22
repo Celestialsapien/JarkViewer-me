@@ -13,46 +13,91 @@
 #include "blpDecoder.h"
 
 #include <intrin.h>
+#include <memory>
 #pragma intrinsic(_BitScanForward)
+
+class UniqueHandle {
+public:
+    explicit UniqueHandle(HANDLE handle = nullptr) noexcept : handle_(handle) {}
+
+    ~UniqueHandle() {
+        reset();
+    }
+
+    UniqueHandle(const UniqueHandle&) = delete;
+    UniqueHandle& operator=(const UniqueHandle&) = delete;
+
+    UniqueHandle(UniqueHandle&& other) noexcept : handle_(other.release()) {}
+
+    UniqueHandle& operator=(UniqueHandle&& other) noexcept {
+        if (this != &other) {
+            reset(other.release());
+        }
+        return *this;
+    }
+
+    HANDLE get() const noexcept {
+        return handle_;
+    }
+
+    void reset(HANDLE handle = nullptr) noexcept {
+        if (handle == handle_) {
+            return;
+        }
+        if (handle_ && handle_ != INVALID_HANDLE_VALUE) {
+            CloseHandle(handle_);
+        }
+        handle_ = handle;
+    }
+
+    HANDLE release() noexcept {
+        HANDLE handle = handle_;
+        handle_ = nullptr;
+        return handle;
+    }
+
+    explicit operator bool() const noexcept {
+        return handle_ && handle_ != INVALID_HANDLE_VALUE;
+    }
+
+private:
+    HANDLE handle_ = nullptr;
+};
 
 class MappedFileReader {
 public:
     explicit MappedFileReader(std::wstring_view path) {
-        hFile = CreateFileW(
-            path.data(),
+        std::wstring filePath(path);
+        hFile.reset(CreateFileW(
+            filePath.c_str(),
             GENERIC_READ,
             FILE_SHARE_READ,
             nullptr,
             OPEN_EXISTING,
             FILE_ATTRIBUTE_NORMAL,
             nullptr
-        );
+        ));
 
-        if (hFile == INVALID_HANDLE_VALUE) {
+        if (!hFile) {
             JARK_LOG("Failed to open file: {}", jarkUtils::wstringToUtf8(path));
             return;
         }
 
-        hMapping = CreateFileMappingW(hFile, nullptr, PAGE_READONLY, 0, 0, nullptr);
+        hMapping.reset(CreateFileMappingW(hFile.get(), nullptr, PAGE_READONLY, 0, 0, nullptr));
         if (!hMapping) {
-            CloseHandle(hFile);
             JARK_LOG("Failed to create file mapping: {}", jarkUtils::wstringToUtf8(path));
             return;
         }
 
-        void* view = MapViewOfFile(hMapping, FILE_MAP_READ, 0, 0, 0);
+        void* view = MapViewOfFile(hMapping.get(), FILE_MAP_READ, 0, 0, 0);
         if (!view) {
-            CloseHandle(hMapping);
-            CloseHandle(hFile);
             JARK_LOG("Failed to map view of file: {}", jarkUtils::wstringToUtf8(path));
             return;
         }
 
         LARGE_INTEGER size;
-        if (!GetFileSizeEx(hFile, &size)) {
+        if (!GetFileSizeEx(hFile.get(), &size)) {
             UnmapViewOfFile(view);
-            CloseHandle(hMapping);
-            CloseHandle(hFile);
             JARK_LOG("Failed to get file size: {}", jarkUtils::wstringToUtf8(path));
             return;
         }
@@ -63,8 +108,6 @@ public:
 
     ~MappedFileReader() {
         if (data_) UnmapViewOfFile(const_cast<void*>(static_cast<const void*>(data_)));
-        if (hMapping) CloseHandle(hMapping);
-        if (hFile != INVALID_HANDLE_VALUE) CloseHandle(hFile);
     }
 
     // 禁止拷贝
@@ -80,11 +123,33 @@ public:
     }
 
 private:
-    HANDLE hFile = INVALID_HANDLE_VALUE;
-    HANDLE hMapping = nullptr;
+    UniqueHandle hFile;
+    UniqueHandle hMapping;
     const uint8_t* data_ = nullptr;
     size_t size_ = 0;
 };
+
+struct HeifContextDeleter {
+    void operator()(heif_context* ctx) const noexcept {
+        if (ctx) heif_context_free(ctx);
+    }
+};
+
+struct HeifImageHandleDeleter {
+    void operator()(heif_image_handle* handle) const noexcept {
+        if (handle) heif_image_handle_release(handle);
+    }
+};
+
+struct HeifImageDeleter {
+    void operator()(heif_image* image) const noexcept {
+        if (image) heif_image_release(image);
+    }
+};
+
+using HeifContextPtr = std::unique_ptr<heif_context, HeifContextDeleter>;
+using HeifImageHandlePtr = std::unique_ptr<heif_image_handle, HeifImageHandleDeleter>;
+using HeifImagePtr = std::unique_ptr<heif_image, HeifImageDeleter>;
 
 
 static std::string jxlStatusCode2String(JxlDecoderStatus status) {
@@ -428,7 +493,7 @@ ImageAsset ImageDatabase::loadWP2(wstring_view path, std::span<const uint8_t> bu
 // vcpkg install libheif:x64-windows-static
 // vcpkg install libheif[hevc]:x64-windows-static
 cv::Mat ImageDatabase::loadHeic(wstring_view path, std::span<const uint8_t> buf) {
-    if (buf.empty())
+    if (buf.size() < 12)
         return {};
 
     auto filetype_check = heif_check_filetype(buf.data(), 12);
@@ -442,48 +507,49 @@ cv::Mat ImageDatabase::loadHeic(wstring_view path, std::span<const uint8_t> buf)
         return {};
     }
 
-    heif_context* ctx = heif_context_alloc();
-    auto err = heif_context_read_from_memory_without_copy(ctx, buf.data(), buf.size(), nullptr);
+    HeifContextPtr ctx(heif_context_alloc());
+    if (!ctx) {
+        JARK_LOG("heif_context_alloc failed: {}", jarkUtils::wstringToUtf8(path));
+        return {};
+    }
+
+    auto err = heif_context_read_from_memory_without_copy(ctx.get(), buf.data(), buf.size(), nullptr);
     if (err.code) {
         JARK_LOG("heif_context_read_from_memory_without_copy error: {} {}", jarkUtils::wstringToUtf8(path), err.message);
         return {};
     }
 
     // get a handle to the primary image
-    heif_image_handle* handle = nullptr;
-    err = heif_context_get_primary_image_handle(ctx, &handle);
+    heif_image_handle* rawHandle = nullptr;
+    err = heif_context_get_primary_image_handle(ctx.get(), &rawHandle);
     if (err.code) {
         JARK_LOG("heif_context_get_primary_image_handle error: {} {}", jarkUtils::wstringToUtf8(path), err.message);
-        if (ctx) heif_context_free(ctx);
-        if (handle) heif_image_handle_release(handle);
         return {};
     }
+    HeifImageHandlePtr handle(rawHandle);
 
     // decode the image and convert colorspace to RGB, saved as 24bit interleaved
-    heif_image* img = nullptr;
-    err = heif_decode_image(handle, &img, heif_colorspace_RGB, heif_chroma_interleaved_RGBA, nullptr);
+    heif_image* rawImg = nullptr;
+    err = heif_decode_image(handle.get(), &rawImg, heif_colorspace_RGB, heif_chroma_interleaved_RGBA, nullptr);
     if (err.code) {
         JARK_LOG("Error: {}", jarkUtils::wstringToUtf8(path));
         JARK_LOG("heif_decode_image error: {}", err.message);
-        if (ctx) heif_context_free(ctx);
-        if (handle) heif_image_handle_release(handle);
-        if (img) heif_image_release(img);
+        return {};
+    }
+    HeifImagePtr img(rawImg);
+
+    int stride = 0;
+    const uint8_t* data = heif_image_get_plane_readonly(img.get(), heif_channel_interleaved, &stride);
+
+    auto width = heif_image_handle_get_width(handle.get());
+    auto height = heif_image_handle_get_height(handle.get());
+    if (!data || width <= 0 || height <= 0 || stride <= 0) {
+        JARK_LOG("Invalid HEIF decoded image plane: {}", jarkUtils::wstringToUtf8(path));
         return {};
     }
 
-    int stride = 0;
-    const uint8_t* data = heif_image_get_plane_readonly(img, heif_channel_interleaved, &stride);
-
-    auto width = heif_image_handle_get_width(handle);
-    auto height = heif_image_handle_get_height(handle);
-
     cv::Mat matImg;
     cv::cvtColor(cv::Mat(height, width, CV_8UC4, (uint8_t*)data, stride), matImg, cv::COLOR_RGBA2BGRA);
-
-    // clean up resources
-    heif_context_free(ctx);
-    heif_image_release(img);
-    heif_image_handle_release(handle);
 
     return matImg;
 }
