@@ -880,14 +880,14 @@ ImageAsset ImageDatabase::loadDDS(wstring_view path, std::span<const uint8_t> bu
         return { ImageFormat::Still, getErrorTipsMat() };
     }
 
-    // Get the first image (mip 0, array slice 0, depth slice 0)
+    // 获取第一张图像 (mip 0, array 0, depth 0)
     const Image* srcImg = scratchImage.GetImage(0, 0, 0);
     if (!srcImg || !srcImg->pixels) {
         JARK_LOG("DDS: failed to get image data");
         return { ImageFormat::Still, getErrorTipsMat() };
     }
 
-    // Decompress BC formats or convert to BGRA
+    // 解压 BC 压缩格式或转换为 BGRA
     const Image* finalImg = srcImg;
     ScratchImage converted;
 
@@ -900,18 +900,30 @@ ImageAsset ImageDatabase::loadDDS(wstring_view path, std::span<const uint8_t> bu
         finalImg = converted.GetImage(0, 0, 0);
     }
     else if (srcImg->format != DXGI_FORMAT_B8G8R8A8_UNORM) {
+        // 基于 WIC 的 Convert 需要调用线程已初始化 COM
+        ScopedComApartment com;
         hr = Convert(*srcImg, DXGI_FORMAT_B8G8R8A8_UNORM, TEX_FILTER_DEFAULT, 0.f, converted);
-        if (FAILED(hr)) {
+        if (SUCCEEDED(hr)) {
+            finalImg = converted.GetImage(0, 0, 0);
+        }
+        else if (srcImg->format != DXGI_FORMAT_R8G8B8A8_UNORM &&
+                 srcImg->format != DXGI_FORMAT_R8G8B8A8_UNORM_SRGB) {
             JARK_LOG("DDS Convert failed: {:08X} for format {}", static_cast<unsigned>(hr), static_cast<int>(srcImg->format));
             return { ImageFormat::Still, getErrorTipsMat() };
         }
-        finalImg = converted.GetImage(0, 0, 0);
+        // R8G8B8A8 格式 Convert 失败不致命，下面用 OpenCV 交换通道
     }
 
     auto mat = directXTexImageToMat(*finalImg);
     if (mat.empty()) {
         JARK_LOG("DDS: failed to create Mat");
         return { ImageFormat::Still, getErrorTipsMat() };
+    }
+
+    // 如果图像未被转换为 BGRA，交换 R↔B 通道
+    if (finalImg->format == DXGI_FORMAT_R8G8B8A8_UNORM ||
+        finalImg->format == DXGI_FORMAT_R8G8B8A8_UNORM_SRGB) {
+        cv::cvtColor(mat, mat, cv::COLOR_RGBA2BGRA);
     }
 
     auto exifInfo = ExifParse::getSimpleInfo(path, static_cast<int>(metadata.width), static_cast<int>(metadata.height), buf.data(), buf.size());
