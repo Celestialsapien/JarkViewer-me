@@ -928,71 +928,229 @@ static cv::Mat directXTexImageToMat(const DirectX::Image& img) {
     return mat;
 }
 
+// 横向拼接：返回宽 = sum(cols)，高 = max(rows)，多余区域透明。
+static cv::Mat ddsStitchHorizontal(const std::vector<cv::Mat>& imgs) {
+    int totalWidth = 0;
+    int maxHeight = 0;
+    for (const auto& m : imgs) {
+        if (m.empty()) continue;
+        totalWidth += m.cols;
+        maxHeight = std::max(maxHeight, m.rows);
+    }
+    if (totalWidth == 0 || maxHeight == 0) return {};
+
+    cv::Mat canvas(maxHeight, totalWidth, CV_8UC4, cv::Scalar(0, 0, 0, 0));
+    int x = 0;
+    for (const auto& m : imgs) {
+        if (m.empty()) continue;
+        m.copyTo(canvas(cv::Rect(x, 0, m.cols, m.rows)));
+        x += m.cols;
+    }
+    return canvas;
+}
+
+// Cubemap 4×3 横十字：
+//   .   +Y  .   .
+//  -X   +Z  +X  -Z
+//   .   -Y  .   .
+// faces 数组按 DirectXTex face 顺序 +X, -X, +Y, -Y, +Z, -Z
+static cv::Mat ddsBuildCubemapCross(const std::array<cv::Mat, 6>& faces, int faceW, int faceH) {
+    if (faceW <= 0 || faceH <= 0) return {};
+
+    cv::Mat canvas(faceH * 3, faceW * 4, CV_8UC4, cv::Scalar(0, 0, 0, 0));
+    // {col, row} for +X, -X, +Y, -Y, +Z, -Z
+    constexpr int kPlacements[6][2] = {
+        {2, 1}, // +X
+        {0, 1}, // -X
+        {1, 0}, // +Y
+        {1, 2}, // -Y
+        {1, 1}, // +Z
+        {3, 1}, // -Z
+    };
+    for (int i = 0; i < 6; ++i) {
+        const cv::Mat& face = faces[i];
+        if (face.empty()) continue;
+        // 保险：若个别面尺寸异常，仅取交集区域
+        const int w = std::min(face.cols, faceW);
+        const int h = std::min(face.rows, faceH);
+        face(cv::Rect(0, 0, w, h)).copyTo(
+            canvas(cv::Rect(kPlacements[i][0] * faceW, kPlacements[i][1] * faceH, w, h)));
+    }
+    return canvas;
+}
+
 ImageAsset ImageDatabase::loadDDS(wstring_view path, std::span<const uint8_t> buf) {
     using namespace DirectX;
 
+    auto makeError = [this]() -> ImageAsset {
+        return { ImageFormat::Still, getErrorTipsMat() };
+    };
+
     if (buf.empty()) {
         JARK_LOG("Empty input buffer for DDS: {}", jarkUtils::wstringToUtf8(path));
-        return { ImageFormat::Still, getErrorTipsMat() };
+        return makeError();
     }
 
     TexMetadata metadata{};
     ScratchImage scratchImage;
-
     HRESULT hr = LoadFromDDSMemory(buf.data(), buf.size(), DDS_FLAGS_NONE, &metadata, scratchImage);
     if (FAILED(hr)) {
         JARK_LOG("LoadFromDDSMemory failed: {:08X} for {}", static_cast<unsigned>(hr), jarkUtils::wstringToUtf8(path));
-        return { ImageFormat::Still, getErrorTipsMat() };
+        return makeError();
     }
 
-    // 获取第一张图像 (mip 0, array 0, depth 0)
-    const Image* srcImg = scratchImage.GetImage(0, 0, 0);
-    if (!srcImg || !srcImg->pixels) {
-        JARK_LOG("DDS: failed to get image data");
-        return { ImageFormat::Still, getErrorTipsMat() };
-    }
+    // 一次性把所有 mip/array/slice 转成 BGRA8。
+    // 失败回退到 R8G8B8A8 通道交换路径，与原实现保持一致。
+    ScratchImage workspace;
+    const ScratchImage* finalScratch = &scratchImage;
+    bool needChannelSwap = false;
 
-    // 解压 BC 压缩格式或转换为 BGRA
-    const Image* finalImg = srcImg;
-    ScratchImage converted;
-
-    if (IsCompressed(srcImg->format)) {
-        hr = Decompress(*srcImg, DXGI_FORMAT_B8G8R8A8_UNORM, converted);
+    if (IsCompressed(metadata.format)) {
+        hr = Decompress(scratchImage.GetImages(), scratchImage.GetImageCount(), metadata,
+                        DXGI_FORMAT_B8G8R8A8_UNORM, workspace);
         if (FAILED(hr)) {
-            JARK_LOG("DDS Decompress failed: {:08X}", static_cast<unsigned>(hr));
-            return { ImageFormat::Still, getErrorTipsMat() };
+            JARK_LOG("DDS Decompress(all) failed: {:08X}", static_cast<unsigned>(hr));
+            return makeError();
         }
-        finalImg = converted.GetImage(0, 0, 0);
+        finalScratch = &workspace;
     }
-    else if (srcImg->format != DXGI_FORMAT_B8G8R8A8_UNORM) {
+    else if (metadata.format != DXGI_FORMAT_B8G8R8A8_UNORM) {
         // 基于 WIC 的 Convert 需要调用线程已初始化 COM
         ScopedComApartment com;
-        hr = Convert(*srcImg, DXGI_FORMAT_B8G8R8A8_UNORM, TEX_FILTER_DEFAULT, 0.f, converted);
+        hr = Convert(scratchImage.GetImages(), scratchImage.GetImageCount(), metadata,
+                     DXGI_FORMAT_B8G8R8A8_UNORM, TEX_FILTER_DEFAULT, 0.f, workspace);
         if (SUCCEEDED(hr)) {
-            finalImg = converted.GetImage(0, 0, 0);
+            finalScratch = &workspace;
         }
-        else if (srcImg->format != DXGI_FORMAT_R8G8B8A8_UNORM &&
-                 srcImg->format != DXGI_FORMAT_R8G8B8A8_UNORM_SRGB) {
-            JARK_LOG("DDS Convert failed: {:08X} for format {}", static_cast<unsigned>(hr), static_cast<int>(srcImg->format));
-            return { ImageFormat::Still, getErrorTipsMat() };
+        else if (metadata.format == DXGI_FORMAT_R8G8B8A8_UNORM ||
+                 metadata.format == DXGI_FORMAT_R8G8B8A8_UNORM_SRGB) {
+            needChannelSwap = true; // 走 OpenCV 通道交换
         }
-        // R8G8B8A8 格式 Convert 失败不致命，下面用 OpenCV 交换通道
+        else {
+            JARK_LOG("DDS Convert(all) failed: {:08X} for format {}",
+                     static_cast<unsigned>(hr), static_cast<int>(metadata.format));
+            return makeError();
+        }
     }
 
-    auto mat = directXTexImageToMat(*finalImg);
-    if (mat.empty()) {
-        JARK_LOG("DDS: failed to create Mat");
-        return { ImageFormat::Still, getErrorTipsMat() };
+    // 单帧提取：(mip, item, slice) → BGRA cv::Mat
+    auto getMat = [&](size_t mip, size_t item, size_t slice) -> cv::Mat {
+        const Image* img = finalScratch->GetImage(mip, item, slice);
+        if (!img || !img->pixels) return {};
+        cv::Mat mat = directXTexImageToMat(*img);
+        if (needChannelSwap && !mat.empty()) {
+            cv::cvtColor(mat, mat, cv::COLOR_RGBA2BGRA);
+        }
+        return mat;
+    };
+
+    ImageAsset asset;
+    std::string typeDesc;
+
+    const bool is3D = (metadata.dimension == TEX_DIMENSION_TEXTURE3D);
+    const bool is1D = (metadata.dimension == TEX_DIMENSION_TEXTURE1D);
+    const bool isCube = metadata.IsCubemap();
+
+    if (is3D) {
+        // Volume Texture：每个 z 切片作一帧，1 FPS 动图，丢弃 mip > 0
+        asset.format = ImageFormat::Animated;
+        asset.frames.reserve(metadata.depth);
+        asset.frameDurations.reserve(metadata.depth);
+        for (size_t z = 0; z < metadata.depth; ++z) {
+            auto m = getMat(0, 0, z);
+            if (m.empty()) continue;
+            asset.frames.push_back(std::move(m));
+            asset.frameDurations.push_back(1000);
+        }
+        typeDesc = std::format("Volume Texture: {}x{}x{}",
+                               metadata.width, metadata.height, metadata.depth);
+    }
+    else if (isCube) {
+        const size_t nCubes = metadata.arraySize / 6;
+        const int faceW = static_cast<int>(metadata.width);
+        const int faceH = static_cast<int>(metadata.height);
+
+        auto buildOne = [&](size_t cubeIdx) -> cv::Mat {
+            std::array<cv::Mat, 6> faces{};
+            for (int f = 0; f < 6; ++f) {
+                faces[f] = getMat(0, cubeIdx * 6 + f, 0);
+            }
+            return ddsBuildCubemapCross(faces, faceW, faceH);
+        };
+
+        if (nCubes <= 1) {
+            // 单 Cubemap：横十字静态图
+            asset.format = ImageFormat::Still;
+            asset.primaryFrame = buildOne(0);
+            typeDesc = std::format("Cubemap (6 faces, {}x{})", faceW, faceH);
+        }
+        else {
+            // Cubemap Array：每个 cube 一帧，1 FPS 动图
+            asset.format = ImageFormat::Animated;
+            asset.frames.reserve(nCubes);
+            asset.frameDurations.reserve(nCubes);
+            for (size_t c = 0; c < nCubes; ++c) {
+                auto cross = buildOne(c);
+                if (cross.empty()) continue;
+                asset.frames.push_back(std::move(cross));
+                asset.frameDurations.push_back(1000);
+            }
+            typeDesc = std::format("Cubemap Array: {} cubes ({}x{})", nCubes, faceW, faceH);
+        }
+    }
+    else if (metadata.arraySize > 1) {
+        // Texture Array（1D/2D 非 cubemap）：array 元素横向拼接，丢弃 mip > 0
+        std::vector<cv::Mat> elements;
+        elements.reserve(metadata.arraySize);
+        for (size_t i = 0; i < metadata.arraySize; ++i) {
+            auto m = getMat(0, i, 0);
+            if (!m.empty()) elements.push_back(std::move(m));
+        }
+        asset.format = ImageFormat::Still;
+        asset.primaryFrame = ddsStitchHorizontal(elements);
+        typeDesc = std::format("{} Texture Array: {} elements ({}x{})",
+                               is1D ? "1D" : "2D", metadata.arraySize,
+                               metadata.width, metadata.height);
+    }
+    else if (metadata.mipLevels > 1) {
+        // 单图 + mipmap 链：横向拼接 mip 链
+        std::vector<cv::Mat> mips;
+        mips.reserve(metadata.mipLevels);
+        for (size_t m = 0; m < metadata.mipLevels; ++m) {
+            auto mat = getMat(m, 0, 0);
+            if (!mat.empty()) mips.push_back(std::move(mat));
+        }
+        asset.format = ImageFormat::Still;
+        asset.primaryFrame = ddsStitchHorizontal(mips);
+        typeDesc = std::format("{} Texture with {} mipmap levels ({}x{})",
+                               is1D ? "1D" : "2D", metadata.mipLevels,
+                               metadata.width, metadata.height);
+    }
+    else {
+        // 单图：直接取 mip 0
+        asset.format = ImageFormat::Still;
+        asset.primaryFrame = getMat(0, 0, 0);
+        typeDesc = std::format("{} Texture ({}x{})",
+                               is1D ? "1D" : "2D", metadata.width, metadata.height);
     }
 
-    // 如果图像未被转换为 BGRA，交换 R↔B 通道
-    if (finalImg->format == DXGI_FORMAT_R8G8B8A8_UNORM ||
-        finalImg->format == DXGI_FORMAT_R8G8B8A8_UNORM_SRGB) {
-        cv::cvtColor(mat, mat, cv::COLOR_RGBA2BGRA);
+    // 多帧路径 / array / cubemap 丢弃了下层 mip 链，附加说明
+    const bool droppedMips = metadata.mipLevels > 1 &&
+                             (is3D || isCube || metadata.arraySize > 1);
+    if (droppedMips) {
+        typeDesc += std::format(" (mip levels: {}, only level 0 shown)", metadata.mipLevels);
     }
 
-    auto exifInfo = ExifParse::getSimpleInfo(path, static_cast<int>(metadata.width), static_cast<int>(metadata.height), buf.data(), buf.size());
-    return { ImageFormat::Still, std::move(mat), {}, {}, std::move(exifInfo) };
+    // 任一路径都没产出 → 返回错误
+    if (asset.primaryFrame.empty() && asset.frames.empty()) {
+        JARK_LOG("DDS: no decodable image extracted from {}", jarkUtils::wstringToUtf8(path));
+        return makeError();
+    }
+
+    const cv::Mat& ref = asset.primaryFrame.empty() ? asset.frames.front() : asset.primaryFrame;
+    asset.exifInfo = ExifParse::getSimpleInfo(path, ref.cols, ref.rows, buf.data(), buf.size())
+                     + "\n" + typeDesc;
+    return asset;
 }
 
 
