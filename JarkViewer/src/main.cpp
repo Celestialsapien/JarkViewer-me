@@ -1112,7 +1112,7 @@ public:
             // 内置的用于提示的图像
         }
         else { // 普通图像  画边框
-            const uint32_t lineColor = 0xFF808080;
+            const uint32_t lineColor = GlobalVar::isCurrentUIDarkMode ? 0xFF333333 : 0xFF000000;//我更喜欢这个颜色
             if (0 < xStart and xStart < canvasW) {
                 const int yMax = std::min(yEnd + 1, canvasH);
                 for (int y = std::max(yStart - 1, 0); y < yMax; y++) {
