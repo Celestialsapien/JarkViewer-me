@@ -1900,30 +1900,26 @@ public:
         } break;
 
         case ActionENUM::zoomIn: {
-            if (curPar.zoomIndex < curPar.zoomList.size() - 1) {
-                curPar.zoomIndex++;
-
-                auto zoomNext = curPar.zoomList[curPar.zoomIndex];
-                if (curPar.zoomTarget && zoomNext != curPar.zoomTarget) {
-                    computeZoomSlide(zoomNext);
-                }
+            // 无极缩放，步长 30%
+            constexpr double zoomFactor = 1.3;
+            int64_t zoomNext = (int64_t)(curPar.zoomTarget * zoomFactor);
+            if (zoomNext <= curPar.zoomTarget) zoomNext = curPar.zoomTarget + 1;
+            if (curPar.zoomTarget && zoomNext != curPar.zoomTarget) {
+                computeZoomSlide(zoomNext);
                 curPar.zoomTarget = zoomNext;
                 smoothShift = true;
             }
         } break;
 
         case ActionENUM::zoomOut: {
+            // 无极缩放，步长 30%
+            constexpr double zoomFactor = 1.3;
             // 不宜缩太小
-            if (curPar.zoomTarget <= curPar.ZOOM_BASE && (curPar.zoomTarget * std::min(curPar.width, curPar.height) / curPar.ZOOM_BASE) < 4)
+            int64_t zoomNext = std::max<int64_t>((int64_t)(curPar.zoomTarget / zoomFactor), 1);
+            if (zoomNext <= curPar.ZOOM_BASE && (zoomNext * std::min(curPar.width, curPar.height) / curPar.ZOOM_BASE) < 4)
                 break;
-
-            if (curPar.zoomIndex > 0) {
-                curPar.zoomIndex--;
-
-                auto zoomNext = curPar.zoomList[curPar.zoomIndex];
-                if (curPar.zoomTarget && zoomNext != curPar.zoomTarget) {
-                    computeZoomSlide(zoomNext);
-                }
+            if (curPar.zoomTarget && zoomNext != curPar.zoomTarget) {
+                computeZoomSlide(zoomNext);
                 curPar.zoomTarget = zoomNext;
                 smoothShift = true;
             }
@@ -2019,36 +2015,37 @@ public:
         }
 
         if (curPar.zoomCur != curPar.zoomTarget || curPar.slideCur != curPar.slideTarget) {
-            if (GlobalVar::settingParameter.isAllowZoomAnimation && smoothShift) { // 简单缩放动画
-                const int progressMax = 1 << 8;
-                static int progressCnt = progressMax;
+            if (GlobalVar::settingParameter.isAllowZoomAnimation && smoothShift) {
+                // 250ms 固定时长动画
+                using namespace std::chrono;
+                static constexpr auto animDuration = milliseconds(250);
+                static steady_clock::time_point animStartTime;
                 static int64_t zoomInit = 0;
                 static int64_t zoomTargetInit = 0;
                 static Cood slideInit{}, slideTargetInit{};
 
-                //未开始进行动画 或 动画未完成就有新缩放操作
-                if (progressCnt >= progressMax || zoomTargetInit != curPar.zoomTarget || slideTargetInit != curPar.slideTarget) {
-                    progressCnt = 1;
+                // 动画重新开始（新操作打断旧动画）
+                if (zoomTargetInit != curPar.zoomTarget || slideTargetInit != curPar.slideTarget) {
+                    animStartTime = steady_clock::now();
                     zoomInit = curPar.zoomCur;
                     zoomTargetInit = curPar.zoomTarget;
                     slideInit = curPar.slideCur;
                     slideTargetInit = curPar.slideTarget;
                 }
+
+                auto elapsed = duration_cast<milliseconds>(steady_clock::now() - animStartTime);
+                if (elapsed >= animDuration) {
+                    curPar.zoomCur = curPar.zoomTarget;
+                    curPar.slideCur = curPar.slideTarget;
+                    smoothShift = false;
+                }
                 else {
-                    auto addDelta = ((progressMax - progressCnt) / 4);
-                    if (addDelta <= 1) {
-                        progressCnt = progressMax;
-                        curPar.zoomCur = curPar.zoomTarget;
-                        curPar.slideCur = curPar.slideTarget;
-                        smoothShift = false;
-                    }
-                    else {
-                        progressCnt += addDelta;
-                        curPar.zoomCur = zoomInit + (curPar.zoomTarget - zoomInit) * progressCnt / progressMax;
-                        const double t = (double)progressCnt / progressMax;
-                        curPar.slideCur.x = (int)std::round(slideInit.x + (curPar.slideTarget.x - slideInit.x) * t);
-                        curPar.slideCur.y = (int)std::round(slideInit.y + (curPar.slideTarget.y - slideInit.y) * t);
-                    }
+                    // 归一化时间 [0, 1]，三次方缓出 (cubic ease-out)
+                    double t = (double)elapsed.count() / (double)animDuration.count();
+                    double easedT = 1.0 - (1.0 - t) * (1.0 - t) * (1.0 - t);
+                    curPar.zoomCur = zoomInit + (int64_t)((curPar.zoomTarget - zoomInit) * easedT);
+                    curPar.slideCur.x = (int)std::round(slideInit.x + (curPar.slideTarget.x - slideInit.x) * easedT);
+                    curPar.slideCur.y = (int)std::round(slideInit.y + (curPar.slideTarget.y - slideInit.y) * easedT);
                 }
             }
             else {
