@@ -445,6 +445,53 @@ void jarkUtils::copyImageToClipboard(const cv::Mat& image) {
 }
 
 
+// 全屏切换遮挡窗口的窗口过程：纯色填充（颜色匹配当前主题），不响应任何交互。
+// 作用：在主窗口切换样式/位置时盖住整个屏幕，让用户看不到 DWM 的过渡帧
+// （DWM 在 SWP_FRAMECHANGED 后会异步重算非客户区，期间用 Aero 兼容模板作为回退帧，
+// 这就是标题栏/最小化最大化关闭按钮短暂降级成 aero 样式的根因）。
+static LRESULT CALLBACK JarkFullScreenMaskWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
+    switch (msg) {
+    case WM_ERASEBKGND: {
+        HDC dc = (HDC)wp;
+        RECT rc; GetClientRect(hwnd, &rc);
+        // currentTheme.BG 是 0xAARRGGBB 形式（小端 BGRA as uint32）
+        uint32_t bg = GlobalVar::currentTheme.BG;
+        HBRUSH brush = CreateSolidBrush(RGB((bg >> 16) & 0xFF, (bg >> 8) & 0xFF, bg & 0xFF));
+        FillRect(dc, &rc, brush);
+        DeleteObject(brush);
+        return 1;
+    }
+    case WM_PAINT: {
+        PAINTSTRUCT ps;
+        BeginPaint(hwnd, &ps);
+        RECT rc; GetClientRect(hwnd, &rc);
+        uint32_t bg = GlobalVar::currentTheme.BG;
+        HBRUSH brush = CreateSolidBrush(RGB((bg >> 16) & 0xFF, (bg >> 8) & 0xFF, bg & 0xFF));
+        FillRect(ps.hdc, &rc, brush);
+        DeleteObject(brush);
+        EndPaint(hwnd, &ps);
+        return 0;
+    }
+    case WM_SETCURSOR:
+        // 遮挡期间隐藏鼠标，避免在纯色块上出现突兀的光标
+        SetCursor(nullptr);
+        return TRUE;
+    }
+    return DefWindowProcW(hwnd, msg, wp, lp);
+}
+
+static void JarkEnsureFullScreenMaskClassRegistered() {
+    static bool registered = false;
+    if (registered) return;
+    WNDCLASSEXW wc = { sizeof(wc) };
+    wc.lpfnWndProc = JarkFullScreenMaskWndProc;
+    wc.hInstance = GetModuleHandleW(nullptr);
+    wc.lpszClassName = L"JarkFullScreenMaskWnd";
+    wc.hCursor = nullptr;
+    RegisterClassExW(&wc);
+    registered = true;
+}
+
 void jarkUtils::ToggleFullScreen(HWND hwnd) {
     static RECT preRect{};
     static DWORD preStyle = 0;
@@ -452,8 +499,31 @@ void jarkUtils::ToggleFullScreen(HWND hwnd) {
 
     static bool isFullScreen = false;
 
+    // 取主窗口所在显示器，遮挡窗口只盖这一个屏幕即可
+    HMONITOR monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+    MONITORINFO monitorInfo = { sizeof(monitorInfo) };
+    GetMonitorInfo(monitor, &monitorInfo);
+
+    // 先创建并显示全屏遮挡窗口，盖住整个屏幕。
+    // 关键：遮挡窗口本身是 WS_POPUP（无标题栏），DWM 不会为它画 Aero 过渡帧；
+    // 它盖在主窗口之上，主窗口切换样式时 DWM 产生的 Aero 回退帧用户就看不到了。
+    JarkEnsureFullScreenMaskClassRegistered();
+    HWND maskWnd = CreateWindowExW(
+        WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
+        L"JarkFullScreenMaskWnd", L"",
+        WS_POPUP,
+        monitorInfo.rcMonitor.left, monitorInfo.rcMonitor.top,
+        monitorInfo.rcMonitor.right - monitorInfo.rcMonitor.left,
+        monitorInfo.rcMonitor.bottom - monitorInfo.rcMonitor.top,
+        nullptr, nullptr, GetModuleHandleW(nullptr), nullptr);
+    ShowWindow(maskWnd, SW_SHOWNOACTIVATE);
+    // 强制遮挡窗口立即绘制一帧，确保切换前屏幕已被纯色覆盖
+    UpdateWindow(maskWnd);
+    // 让 DWM 把这一帧合成上屏
+    DwmFlush();
+
+    // 此时屏幕已被遮挡窗口覆盖，安全地切换主窗口样式/位置
     if (isFullScreen) {
-        // 退出全屏模式，恢复之前的窗口状态
         SetWindowLong(hwnd, GWL_STYLE, preStyle);
         SetWindowLong(hwnd, GWL_EXSTYLE, preExStyle);
         SetWindowPos(hwnd, nullptr, preRect.left, preRect.top,
@@ -462,15 +532,9 @@ void jarkUtils::ToggleFullScreen(HWND hwnd) {
             SWP_NOZORDER | SWP_FRAMECHANGED);
     }
     else {
-        // 保存当前窗口状态
         GetWindowRect(hwnd, &preRect);
         preStyle = GetWindowLong(hwnd, GWL_STYLE);
         preExStyle = GetWindowLong(hwnd, GWL_EXSTYLE);
-
-        // 切换到全屏模式
-        HMONITOR monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
-        MONITORINFO monitorInfo = { sizeof(monitorInfo) };
-        GetMonitorInfo(monitor, &monitorInfo);
 
         SetWindowLong(hwnd, GWL_STYLE, preStyle & ~(WS_CAPTION | WS_THICKFRAME));
         SetWindowLong(hwnd, GWL_EXSTYLE, preExStyle & ~(WS_EX_DLGMODALFRAME | WS_EX_WINDOWEDGE | WS_EX_CLIENTEDGE | WS_EX_STATICEDGE));
@@ -481,6 +545,22 @@ void jarkUtils::ToggleFullScreen(HWND hwnd) {
             monitorInfo.rcMonitor.bottom - monitorInfo.rcMonitor.top,
             SWP_NOZORDER | SWP_FRAMECHANGED);
     }
+
+    // 同步排空待处理消息，确保窗口过程已处理完样式/位置变更
+    MSG msg;
+    while (PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE)) {
+        TranslateMessage(&msg);
+        DispatchMessageW(&msg);
+    }
+    // 让 DWM 完成过渡帧合成（此时主窗口的 Aero 回退帧被遮挡窗口盖住，用户看不到）
+    DwmFlush();
+    // 给 DWM 足够时间完成最终样式渲染（经验值，约一帧多）
+    Sleep(30);
+    // 再 flush 一次确保最终帧已上屏
+    DwmFlush();
+
+    // 销毁遮挡窗口，露出已经完成切换的主窗口
+    DestroyWindow(maskWnd);
 
     isFullScreen = !isFullScreen;
 }
