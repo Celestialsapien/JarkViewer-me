@@ -38,6 +38,10 @@ protected:
     // CPU 画布数据呈现到屏幕
     void PresentCanvas(const uint8_t* data, int width, int height, int stride);
 
+    // 仅把已上传的暂存纹理再提交一次（GPU 内部 CopyResource + Present），不重传画布。
+    // 用于空闲保活：零 CPU 画布拷贝代价，让交换链/GPU 始终活跃，避免空闲后首次交互的唤醒卡顿。
+    void PresentLastFrame();
+
     template<class Interface>
     void SafeRelease(Interface*& pInterfaceToRelease);
 
