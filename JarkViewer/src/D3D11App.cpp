@@ -358,20 +358,6 @@ void D3D11App::PresentCanvas(const uint8_t* data, int width, int height, int str
     m_pSwapChain->Present(0, 0);
 }
 
-void D3D11App::PresentLastFrame() {
-    if (!m_pStagingTexture || !m_pSwapChain || !m_pD3DDeviceContext)
-        return;
-
-    // 直接复用已上传到暂存纹理的上一帧，仅做一次 GPU 内部拷贝并呈现，不触碰 CPU 画布。
-    ID3D11Texture2D* pBackBuffer = nullptr;
-    HRESULT hr = m_pSwapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), (void**)&pBackBuffer);
-    if (SUCCEEDED(hr)) {
-        m_pD3DDeviceContext->CopyResource(pBackBuffer, m_pStagingTexture);
-        pBackBuffer->Release();
-    }
-    m_pSwapChain->Present(0, 0);
-}
-
 void D3D11App::DiscardDeviceResources() {
     SafeRelease(m_pStagingTexture);
     SafeRelease(m_pSwapChain);
@@ -382,13 +368,13 @@ void D3D11App::DiscardDeviceResources() {
 void D3D11App::Run() {
     while (m_fRunning) {
         MSG msg;
+        // 每条待处理消息只取一条并分发，随后必定渲染一帧：避免快速滚轮等输入洪流
+        // 把 DrawScene 饿死，导致缩放开头出现“卡顿/无响应”后才突然追平。
         if (PeekMessageW(&msg, NULL, 0, 0, PM_REMOVE)) {
             TranslateMessage(&msg);
             DispatchMessageW(&msg);
         }
-        else {
-            DrawScene();
-        }
+        DrawScene();
     }
 }
 
