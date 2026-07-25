@@ -379,12 +379,18 @@ public:
     void push(Action action) {
         std::lock_guard<std::mutex> lock(mtx);
 
-        if (!queue.empty() && action.action == ActionENUM::slide) {
+        if (!queue.empty()) {
             Action& back = queue.back();
 
-            if (back.action == ActionENUM::slide) {
+            if (action.action == ActionENUM::slide && back.action == ActionENUM::slide) {
                 back.x += action.x;
                 back.y += action.y;
+            }
+            // 连续同向滚轮缩放合并为一步（步数累加到 value1），避免快速拨动时
+            // 队列堆积大量 zoom 动作，导致手势刚开始要连渲多帧而出现卡顿。
+            else if ((action.action == ActionENUM::zoomIn && back.action == ActionENUM::zoomIn) ||
+                     (action.action == ActionENUM::zoomOut && back.action == ActionENUM::zoomOut)) {
+                back.value1 += action.value1;
             }
             else {
                 queue.push(action);
