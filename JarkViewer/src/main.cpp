@@ -609,9 +609,15 @@ public:
     void OnMouseWheel(UINT nFlags, short zDelta, int x, int y) override {
         switch (cursorPos)
         {
-        case CursorPos::centerArea:
-            operateQueue.push({ zDelta < 0 ? ActionENUM::zoomOut : ActionENUM::zoomIn });
-            break;
+        case CursorPos::centerArea: {
+            // 快速拨动时 zDelta 可能为几百甚至上千。按每“一格(120)”折算步数，
+            // 既让快速滚轮缩放更跟手，也避免把一次猛拨只当成一格 30% 缩放。
+            constexpr int WHEEL_DELTA_STEP = 120;
+            int deltaMag = (zDelta < 0 ? -(int)zDelta : (int)zDelta);
+            int zoomSteps = std::max(1, deltaMag / WHEEL_DELTA_STEP);
+            if (zoomSteps > 10) zoomSteps = 10; // 防止单条消息步数过大
+            operateQueue.push({ zDelta < 0 ? ActionENUM::zoomOut : ActionENUM::zoomIn, zoomSteps });
+        } break;
 
         case CursorPos::leftEdge:
         case CursorPos::rightEdge:
@@ -1900,10 +1906,16 @@ public:
         } break;
 
         case ActionENUM::zoomIn: {
-            // 无极缩放，步长 30%
+            // 无极缩放，步长 30%；一次动作可能包含多步（快速滚轮或队列合并而来）
             constexpr double zoomFactor = 1.3;
-            int64_t zoomNext = (int64_t)(curPar.zoomTarget * zoomFactor);
-            if (zoomNext <= curPar.zoomTarget) zoomNext = curPar.zoomTarget + 1;
+            int steps = std::max(1, operateAction.value1);
+            if (steps > 30) steps = 30; // 限制单帧跨度，避免数值过大
+            int64_t zoomNext = curPar.zoomTarget;
+            for (int i = 0; i < steps; i++) {
+                int64_t z = (int64_t)(zoomNext * zoomFactor);
+                if (z <= zoomNext) z = zoomNext + 1;
+                zoomNext = z;
+            }
             if (curPar.zoomTarget && zoomNext != curPar.zoomTarget) {
                 computeZoomSlide(zoomNext);
                 curPar.zoomTarget = zoomNext;
@@ -1912,12 +1924,18 @@ public:
         } break;
 
         case ActionENUM::zoomOut: {
-            // 无极缩放，步长 30%
+            // 无极缩放，步长 30%；一次动作可能包含多步（快速滚轮或队列合并而来）
             constexpr double zoomFactor = 1.3;
-            // 不宜缩太小
-            int64_t zoomNext = std::max<int64_t>((int64_t)(curPar.zoomTarget / zoomFactor), 1);
-            if (zoomNext <= curPar.ZOOM_BASE && (zoomNext * std::min(curPar.width, curPar.height) / curPar.ZOOM_BASE) < 4)
-                break;
+            int steps = std::max(1, operateAction.value1);
+            if (steps > 30) steps = 30; // 限制单帧跨度，避免数值过大
+            int64_t zoomNext = curPar.zoomTarget;
+            for (int i = 0; i < steps; i++) {
+                // 不宜缩太小
+                int64_t z = std::max<int64_t>((int64_t)(zoomNext / zoomFactor), 1);
+                if (z <= curPar.ZOOM_BASE && (z * std::min(curPar.width, curPar.height) / curPar.ZOOM_BASE) < 4)
+                    break;
+                zoomNext = z;
+            }
             if (curPar.zoomTarget && zoomNext != curPar.zoomTarget) {
                 computeZoomSlide(zoomNext);
                 curPar.zoomTarget = zoomNext;
