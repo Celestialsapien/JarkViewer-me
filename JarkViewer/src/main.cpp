@@ -27,6 +27,9 @@ std::wstring_view RepositoryLink = L"https://github.com/jark006/JarkViewer";
 std::wstring_view BaiduLink = L"https://pan.baidu.com/s/1ka7p__WVw2du3mnOfqWceQ?pwd=6666"; // 密码 6666
 std::wstring_view LanzouLink = L"https://jark006.lanzout.com/b0ko7mczg"; // 密码 6666
 
+// 空闲后首次真实交互前需一次性预热 GPU/线程池（懒预热标志）
+static bool g_gpuWarmupPending = true;
+
 
 static constexpr auto generate_zoom_list() {
     // 原始缩放级别数组（2^10 到 2^22）
@@ -609,15 +612,9 @@ public:
     void OnMouseWheel(UINT nFlags, short zDelta, int x, int y) override {
         switch (cursorPos)
         {
-        case CursorPos::centerArea: {
-            // 快速拨动时 zDelta 可能为几百甚至上千。按每“一格(120)”折算步数，
-            // 既让快速滚轮缩放更跟手，也避免把一次猛拨只当成一格 30% 缩放。
-            constexpr int WHEEL_DELTA_STEP = 120;
-            int deltaMag = (zDelta < 0 ? -(int)zDelta : (int)zDelta);
-            int zoomSteps = std::max(1, deltaMag / WHEEL_DELTA_STEP);
-            if (zoomSteps > 10) zoomSteps = 10; // 防止单条消息步数过大
-            operateQueue.push({ zDelta < 0 ? ActionENUM::zoomOut : ActionENUM::zoomIn, zoomSteps });
-        } break;
+        case CursorPos::centerArea:
+            operateQueue.push({ zDelta < 0 ? ActionENUM::zoomOut : ActionENUM::zoomIn });
+            break;
 
         case CursorPos::leftEdge:
         case CursorPos::rightEdge:
@@ -1666,11 +1663,49 @@ public:
         if (operateAction.action == ActionENUM::none &&
             curPar.zoomCur == curPar.zoomTarget &&
             curPar.slideCur == curPar.slideTarget &&
-            (curPar.imageAssetPtr->format != ImageFormat::Animated || 
+            (curPar.imageAssetPtr->format != ImageFormat::Animated ||
                 (curPar.imageAssetPtr->format == ImageFormat::Animated && curPar.isAnimationPause))) {
 
+            // 空闲时仅标记"下次交互前需预热"，让 GPU/线程池真正睡死（零额外功耗）。
+            // 预热在一次真实交互开始时一次性完成，把唤醒代价在渲染前付清，首帧即顺滑。
+            g_gpuWarmupPending = true;
             Sleep(1); // Windows机制限制，实际时长最小只能 15.6ms
             return;
+        }
+
+        // 懒预热：空闲后首次真实交互前，一次性付清"空闲→激活"的全部冷启动代价，
+        // 首帧渲染即顺滑；空闲时 GPU/CPU 完全睡死，零额外功耗。覆盖：
+        //  ① GPU/交换链唤醒（含 DWM 退出低功耗）② PPL 线程池唤醒 + CPU 提频
+        //  ③ 当前原图常驻（消除 drawCanvas 采样 page fault）④ CPU 画布常驻（消除 std::fill/写入冷页）
+        if (g_gpuWarmupPending) {
+            g_gpuWarmupPending = false;
+
+            // ① 唤醒交换链 / GPU（不重传 32MB 画布）；尺寸不符时跳过，下一帧真实渲染会重建
+            if (mainCanvas.cols == winWidth && mainCanvas.rows == winHeight) {
+                PresentLastFrame();
+            }
+
+            // 并行触碰辅助函数：按 4KB 页读取首字节，唤醒 PPL 线程池、触发 CPU 提频、并让内存常驻
+            auto touchByPage = [&](const cv::Mat& m) {
+                if (m.empty()) return;
+                const size_t bytes = m.total() * m.elemSize();
+                const size_t pageSize = 4096;
+                const size_t nChunks = (bytes + pageSize - 1) / pageSize;
+                concurrency::parallel_for((size_t)0, nChunks, [&](size_t i) {
+                    volatile uint8_t touch = m.data[i * pageSize];
+                    (void)touch;
+                });
+            };
+
+            // ③ 当前原图（still/none 用 primaryFrame，动图用当前帧）
+            auto& asset = *curPar.imageAssetPtr;
+            const cv::Mat& warmImg = (asset.format == ImageFormat::Still || asset.format == ImageFormat::None)
+                ? asset.primaryFrame
+                : asset.frames[curPar.curFrameIdx];
+            touchByPage(warmImg);
+
+            // ④ CPU 画布（消除 drawCanvas 开头 std::fill 与采样写入的冷页代价）
+            touchByPage(mainCanvas);
         }
 
         if (operateAction.action == ActionENUM::printImage) {
@@ -1906,16 +1941,10 @@ public:
         } break;
 
         case ActionENUM::zoomIn: {
-            // 无极缩放，步长 30%；一次动作可能包含多步（快速滚轮或队列合并而来）
+            // 无极缩放，步长 30%
             constexpr double zoomFactor = 1.3;
-            int steps = std::max(1, operateAction.value1);
-            if (steps > 30) steps = 30; // 限制单帧跨度，避免数值过大
-            int64_t zoomNext = curPar.zoomTarget;
-            for (int i = 0; i < steps; i++) {
-                int64_t z = (int64_t)(zoomNext * zoomFactor);
-                if (z <= zoomNext) z = zoomNext + 1;
-                zoomNext = z;
-            }
+            int64_t zoomNext = (int64_t)(curPar.zoomTarget * zoomFactor);
+            if (zoomNext <= curPar.zoomTarget) zoomNext = curPar.zoomTarget + 1;
             if (curPar.zoomTarget && zoomNext != curPar.zoomTarget) {
                 computeZoomSlide(zoomNext);
                 curPar.zoomTarget = zoomNext;
@@ -1924,18 +1953,12 @@ public:
         } break;
 
         case ActionENUM::zoomOut: {
-            // 无极缩放，步长 30%；一次动作可能包含多步（快速滚轮或队列合并而来）
+            // 无极缩放，步长 30%
             constexpr double zoomFactor = 1.3;
-            int steps = std::max(1, operateAction.value1);
-            if (steps > 30) steps = 30; // 限制单帧跨度，避免数值过大
-            int64_t zoomNext = curPar.zoomTarget;
-            for (int i = 0; i < steps; i++) {
-                // 不宜缩太小
-                int64_t z = std::max<int64_t>((int64_t)(zoomNext / zoomFactor), 1);
-                if (z <= curPar.ZOOM_BASE && (z * std::min(curPar.width, curPar.height) / curPar.ZOOM_BASE) < 4)
-                    break;
-                zoomNext = z;
-            }
+            // 不宜缩太小
+            int64_t zoomNext = std::max<int64_t>((int64_t)(curPar.zoomTarget / zoomFactor), 1);
+            if (zoomNext <= curPar.ZOOM_BASE && (zoomNext * std::min(curPar.width, curPar.height) / curPar.ZOOM_BASE) < 4)
+                break;
             if (curPar.zoomTarget && zoomNext != curPar.zoomTarget) {
                 computeZoomSlide(zoomNext);
                 curPar.zoomTarget = zoomNext;
