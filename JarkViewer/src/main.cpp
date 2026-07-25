@@ -27,8 +27,8 @@ std::wstring_view RepositoryLink = L"https://github.com/jark006/JarkViewer";
 std::wstring_view BaiduLink = L"https://pan.baidu.com/s/1ka7p__WVw2du3mnOfqWceQ?pwd=6666"; // 密码 6666
 std::wstring_view LanzouLink = L"https://jark006.lanzout.com/b0ko7mczg"; // 密码 6666
 
-// 空闲后首次真实交互前需一次性预热 GPU/线程池（懒预热标志）
-static bool g_gpuWarmupPending = true;
+// 空闲后首次真实交互前，预热一次真实渲染上传路径（避免首帧冷启动卡顿）
+static bool s_renderWarmed = false;
 
 
 static constexpr auto generate_zoom_list() {
@@ -1666,46 +1666,20 @@ public:
             (curPar.imageAssetPtr->format != ImageFormat::Animated ||
                 (curPar.imageAssetPtr->format == ImageFormat::Animated && curPar.isAnimationPause))) {
 
-            // 空闲时仅标记"下次交互前需预热"，让 GPU/线程池真正睡死（零额外功耗）。
-            // 预热在一次真实交互开始时一次性完成，把唤醒代价在渲染前付清，首帧即顺滑。
-            g_gpuWarmupPending = true;
+            // 空闲：标记下次交互需预热一次真实渲染路径，并让线程真正睡死（零额外功耗）。
+            s_renderWarmed = false;
             Sleep(1); // Windows机制限制，实际时长最小只能 15.6ms
             return;
         }
 
-        // 懒预热：空闲后首次真实交互前，一次性付清"空闲→激活"的全部冷启动代价，
-        // 首帧渲染即顺滑；空闲时 GPU/CPU 完全睡死，零额外功耗。覆盖：
-        //  ① GPU/交换链唤醒（含 DWM 退出低功耗）② PPL 线程池唤醒 + CPU 提频
-        //  ③ 当前原图常驻（消除 drawCanvas 采样 page fault）④ CPU 画布常驻（消除 std::fill/写入冷页）
-        if (g_gpuWarmupPending) {
-            g_gpuWarmupPending = false;
-
-            // ① 唤醒交换链 / GPU（不重传 32MB 画布）；尺寸不符时跳过，下一帧真实渲染会重建
+        // 空闲后首次真实交互：用"当前已渲染帧"走一次真实上传路径（Map+memcpy+CopyResource+Present），
+        // 把 D3D11 暂存纹理映射 / 显存 DMA / DWM 重组合这一帧的冷启动代价在缩放渲染之前付清，
+        // 首帧缩放即顺滑；空闲时完全不占用（线程睡死）。只做一次，连续交互期间不再重复。
+        if (!s_renderWarmed) {
+            s_renderWarmed = true;
             if (mainCanvas.cols == winWidth && mainCanvas.rows == winHeight) {
-                PresentLastFrame();
+                PresentCanvas(mainCanvas.ptr(), mainCanvas.cols, mainCanvas.rows, (int)mainCanvas.step);
             }
-
-            // 并行触碰辅助函数：按 4KB 页读取首字节，唤醒 PPL 线程池、触发 CPU 提频、并让内存常驻
-            auto touchByPage = [&](const cv::Mat& m) {
-                if (m.empty()) return;
-                const size_t bytes = m.total() * m.elemSize();
-                const size_t pageSize = 4096;
-                const size_t nChunks = (bytes + pageSize - 1) / pageSize;
-                concurrency::parallel_for((size_t)0, nChunks, [&](size_t i) {
-                    volatile uint8_t touch = m.data[i * pageSize];
-                    (void)touch;
-                });
-            };
-
-            // ③ 当前原图（still/none 用 primaryFrame，动图用当前帧）
-            auto& asset = *curPar.imageAssetPtr;
-            const cv::Mat& warmImg = (asset.format == ImageFormat::Still || asset.format == ImageFormat::None)
-                ? asset.primaryFrame
-                : asset.frames[curPar.curFrameIdx];
-            touchByPage(warmImg);
-
-            // ④ CPU 画布（消除 drawCanvas 开头 std::fill 与采样写入的冷页代价）
-            touchByPage(mainCanvas);
         }
 
         if (operateAction.action == ActionENUM::printImage) {
