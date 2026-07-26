@@ -192,9 +192,6 @@ HRESULT D3D11App::Initialize(HINSTANCE hInstance) {
     if (SUCCEEDED(hr)) {
         CreateDeviceResources();
 
-        // 保持系统激活（阻止 DWM/GPU/线程因空闲被降级），但不阻止屏幕关闭。
-        SetThreadExecutionState(ES_CONTINUOUS | ES_SYSTEM_REQUIRED);
-
         BOOL themeMode = GlobalVar::isCurrentUIDarkMode;
         DwmSetWindowAttribute(m_hWnd, 20, &themeMode, sizeof(BOOL));
         DragAcceptFiles(m_hWnd, TRUE);
