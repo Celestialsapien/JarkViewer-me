@@ -1663,29 +1663,6 @@ public:
             (curPar.imageAssetPtr->format != ImageFormat::Animated ||
                 (curPar.imageAssetPtr->format == ImageFormat::Animated && curPar.isAnimationPause))) {
 
-            // 空闲保活：每秒做一次完整的真实渲染管线（drawCanvas + Present），
-            // 让 DWM 持续看到"内容在更新"的新帧，阻止窗口被降级。
-            // 每秒一次，能耗占空比 ~0.4%，可忽略。
-            static ULONGLONG s_lastKeepAlive = 0;
-            ULONGLONG nowMs = GetTickCount64();
-            if (nowMs - s_lastKeepAlive >= 1000) {
-                s_lastKeepAlive = nowMs;
-                cv::Mat srcImg;
-                if (curPar.imageAssetPtr->format == ImageFormat::None ||
-                    curPar.imageAssetPtr->format == ImageFormat::Still) {
-                    srcImg = curPar.imageAssetPtr->primaryFrame;
-                }
-                else {
-                    srcImg = curPar.imageAssetPtr->frames[curPar.curFrameIdx];
-                }
-                if (!srcImg.empty() && mainCanvas.cols == winWidth && mainCanvas.rows == winHeight) {
-                    drawCanvas(srcImg, mainCanvas);
-                    drawExifInfo(mainCanvas);
-                    drawExtraUI(mainCanvas);
-                    updateMainCanvas();
-                }
-            }
-
             Sleep(1); // Windows机制限制，实际时长最小只能 15.6ms
             return;
         }
