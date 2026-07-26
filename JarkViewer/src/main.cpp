@@ -27,9 +27,6 @@ std::wstring_view RepositoryLink = L"https://github.com/jark006/JarkViewer";
 std::wstring_view BaiduLink = L"https://pan.baidu.com/s/1ka7p__WVw2du3mnOfqWceQ?pwd=6666"; // 密码 6666
 std::wstring_view LanzouLink = L"https://jark006.lanzout.com/b0ko7mczg"; // 密码 6666
 
-// 空闲后首次真实交互前，预热一次真实渲染上传路径（避免首帧冷启动卡顿）
-static bool s_renderWarmed = false;
-
 
 static constexpr auto generate_zoom_list() {
     // 原始缩放级别数组（2^10 到 2^22）
@@ -1666,20 +1663,31 @@ public:
             (curPar.imageAssetPtr->format != ImageFormat::Animated ||
                 (curPar.imageAssetPtr->format == ImageFormat::Animated && curPar.isAnimationPause))) {
 
-            // 空闲：标记下次交互需预热一次真实渲染路径，并让线程真正睡死（零额外功耗）。
-            s_renderWarmed = false;
+            // 空闲保活：每秒做一次完整的真实渲染管线（drawCanvas + Present），
+            // 让 DWM 持续看到"内容在更新"的新帧，阻止窗口被降级。
+            // 每秒一次，能耗占空比 ~0.4%，可忽略。
+            static ULONGLONG s_lastKeepAlive = 0;
+            ULONGLONG nowMs = GetTickCount64();
+            if (nowMs - s_lastKeepAlive >= 1000) {
+                s_lastKeepAlive = nowMs;
+                cv::Mat srcImg;
+                if (curPar.imageAssetPtr->format == ImageFormat::None ||
+                    curPar.imageAssetPtr->format == ImageFormat::Still) {
+                    srcImg = curPar.imageAssetPtr->primaryFrame;
+                }
+                else {
+                    srcImg = curPar.imageAssetPtr->frames[curPar.curFrameIdx];
+                }
+                if (!srcImg.empty() && mainCanvas.cols == winWidth && mainCanvas.rows == winHeight) {
+                    drawCanvas(srcImg, mainCanvas);
+                    drawExifInfo(mainCanvas);
+                    drawExtraUI(mainCanvas);
+                    updateMainCanvas();
+                }
+            }
+
             Sleep(1); // Windows机制限制，实际时长最小只能 15.6ms
             return;
-        }
-
-        // 空闲后首次真实交互：用"当前已渲染帧"走一次真实上传路径（Map+memcpy+CopyResource+Present），
-        // 把 D3D11 暂存纹理映射 / 显存 DMA / DWM 重组合这一帧的冷启动代价在缩放渲染之前付清，
-        // 首帧缩放即顺滑；空闲时完全不占用（线程睡死）。只做一次，连续交互期间不再重复。
-        if (!s_renderWarmed) {
-            s_renderWarmed = true;
-            if (mainCanvas.cols == winWidth && mainCanvas.rows == winHeight) {
-                PresentCanvas(mainCanvas.ptr(), mainCanvas.cols, mainCanvas.rows, (int)mainCanvas.step);
-            }
         }
 
         if (operateAction.action == ActionENUM::printImage) {
